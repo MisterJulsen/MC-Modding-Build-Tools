@@ -12,10 +12,6 @@ class ModBuildTools implements Plugin<Project> {
 
     static final String GROUP            = "Mod Build Tools"
     static final String CONFIG_FILE      = ".mod-build-config.json"
-
-    // -PbuildProfile=maven   → publishLocal, small JARs, no bundled deps
-    // -PbuildProfile=platform → build, full JARs for players / mod platforms
-    // If unset: behaves like 'platform' so local dev builds work as expected
     static final String PROFILE_PROP     = "buildProfile"
     static final String PROFILE_MAVEN    = "maven"
     static final String PROFILE_PLATFORM = "platform"
@@ -23,13 +19,9 @@ class ModBuildTools implements Plugin<Project> {
     @Override
     void apply(Project project) {
         def ext = project.extensions.create("modBuildTools", ModBuildToolsExtension)
-
-        // Shared map: subproject-name -> ReleaseArtifact, populated by subproject hooks
         project.ext.releaseArtifacts = [:]
-
         project.pluginManager.apply("maven-publish")
 
-        // Order matters: versioning must run before metadata/publish tasks read project.version
         configureVersioning(project, ext)
         configureRepositories(project, ext)
         configureBuildProfile(project)
@@ -40,37 +32,20 @@ class ModBuildTools implements Plugin<Project> {
         ScriptDownloader.registerScriptSetupTask(project, ext)
     }
 
-    // -------------------------------------------------------------------------
-    // Build profile helpers
-    // These are available in every subproject via the root project extension:
-    //   if (rootProject.modBuildTools.isMavenBuild(project)) { ... }
-    //   if (rootProject.modBuildTools.isPlatformBuild(project)) { ... }
-    //
-    // Or via the injected helpers on every project:
-    //   if (isMavenBuild()) { ... }
-    //   if (isPlatformBuild()) { ... }
-    // -------------------------------------------------------------------------
     private static void configureBuildProfile(Project project) {
         if (project != project.rootProject) return
 
-        // Inject helper closures into every (sub)project so build scripts can
-        // simply write:  if (isMavenBuild()) { ... }
         project.allprojects { p ->
             p.ext.isMavenBuild    = { -> resolveProfile(project) == PROFILE_MAVEN }
             p.ext.isPlatformBuild = { -> resolveProfile(project) != PROFILE_MAVEN }
         }
     }
 
-    // Returns the active build profile. Defaults to PROFILE_PLATFORM so that
-    // plain `./gradlew build` on a dev machine always produces full JARs.
     static String resolveProfile(Project project) {
         return project.rootProject.findProperty(PROFILE_PROP)?.toString()?.toLowerCase()
                 ?: PROFILE_PLATFORM
     }
 
-    // -------------------------------------------------------------------------
-    // Versioning
-    // -------------------------------------------------------------------------
     private static void configureVersioning(Project project, ModBuildToolsExtension ext) {
         if (project != project.rootProject) return
 
@@ -114,9 +89,6 @@ class ModBuildTools implements Plugin<Project> {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Maven repositories – local only, remote publish is handled by CI
-    // -------------------------------------------------------------------------
     private static void configureRepositories(Project project, ModBuildToolsExtension ext) {
         project.afterEvaluate {
             project.allprojects { p ->
@@ -134,9 +106,6 @@ class ModBuildTools implements Plugin<Project> {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Root-level convenience tasks
-    // -------------------------------------------------------------------------
     private static void registerRootTasks(Project project, ModBuildToolsExtension ext) {
         if (project != project.rootProject) return
 
@@ -145,9 +114,6 @@ class ModBuildTools implements Plugin<Project> {
                 ext.publish.publishCommon || it.name != "common"
             }
 
-            // publishLocal – writes to localRepoDir using the maven build profile.
-            // In CI this is called with -PbuildProfile=maven so subprojects produce
-            // slim JARs without bundled dependencies.
             project.tasks.register("publishLocal") {
                 group       = GROUP
                 description = "Publishes all mod artifacts to the local Maven repository (maven profile)"
@@ -161,7 +127,6 @@ class ModBuildTools implements Plugin<Project> {
             }
         }
 
-        // buildWithMetadata – platform build + metadata in one shot (local dev / CI platform step)
         project.tasks.register("buildWithMetadata") {
             group       = GROUP
             description = "Builds all subprojects (platform profile) and generates metadata.json"
@@ -194,9 +159,6 @@ class ModBuildTools implements Plugin<Project> {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Javadoc configuration
-    // -------------------------------------------------------------------------
     private static void configureJavadoc(Project project, ModBuildToolsExtension ext) {
         if (!ext.javadoc.enabled) return
 
@@ -222,9 +184,6 @@ class ModBuildTools implements Plugin<Project> {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Subproject hooks
-    // -------------------------------------------------------------------------
     private static void configureSubprojectHooks(Project project) {
         if (project != project.rootProject) return
 
@@ -246,9 +205,6 @@ class ModBuildTools implements Plugin<Project> {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Release channel mapping
-    // -------------------------------------------------------------------------
     static String mapReleaseChannel(Project project, String rawChannel) {
         def cfgFile = project.rootProject.file(CONFIG_FILE)
         def json    = new JsonSlurper().parse(cfgFile)
@@ -264,9 +220,6 @@ class ModBuildTools implements Plugin<Project> {
         return "release"
     }
 
-    // -------------------------------------------------------------------------
-    // metadata.json generation
-    // -------------------------------------------------------------------------
     private static void registerMetadataTask(Project project, ModBuildToolsExtension ext) {
         if (project != project.rootProject) return
 
@@ -321,11 +274,6 @@ class ModBuildTools implements Plugin<Project> {
 
         def timestamp    = new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone("UTC"))
         def localRepoDir = ext.publish.localRepoDir
-
-        // GITHUB_RUN_ID is set automatically by GitHub Actions.
-        // publish.yml needs it to download the internal artifact from the
-        // release.yml run – actions/download-artifact@v4 requires an explicit
-        // run-id when fetching artifacts across workflow runs.
         def ciRunId = System.getenv("GITHUB_RUN_ID") ?: ""
 
         def output = [
