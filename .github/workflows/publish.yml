@@ -15,7 +15,7 @@ jobs:
           RUN_ID=$(echo "${{ github.event.release.body }}" \
             | grep -oP '(?<=<!--run-id:)\d+(?=-->)' || true)
           if [ -z "$RUN_ID" ]; then
-            echo "Error: Could not find run-id comment in release body" >&2
+            echo "Error: Could not find <!--run-id:--> comment in release body" >&2
             exit 1
           fi
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
@@ -35,9 +35,10 @@ jobs:
             find internal/ -maxdepth 4 | head -20 >&2
             exit 1
           fi
-          echo "Maven staging contents:"
-          find internal/maven -maxdepth 5
+          echo "Publishing the following artifacts:"
+          find internal/maven -name "*.jar" -o -name "*.pom" | sort
 
+      # ── GitHub Pages ──────────────────────────────────────────────────────
       - name: "[github-pages] Setup SSH deploy key"
         if: ${{ vars.MAVEN_TARGET == 'github-pages' }}
         run: |
@@ -72,6 +73,7 @@ jobs:
             git push origin HEAD
           fi
 
+      # ── HTTP / WebDAV ─────────────────────────────────────────────────────
       - name: "[http] Upload via HTTP PUT"
         if: ${{ vars.MAVEN_TARGET == 'http' }}
         env:
@@ -97,6 +99,7 @@ jobs:
           done
           [ "$ERRORS" -eq 0 ] || { echo "Error: ${ERRORS} upload(s) failed" >&2; exit 1; }
 
+      # ── S3-compatible ─────────────────────────────────────────────────────
       - name: "[s3] Upload to S3-compatible storage"
         if: ${{ vars.MAVEN_TARGET == 's3' }}
         env:
@@ -106,13 +109,22 @@ jobs:
           S3_BUCKET: ${{ secrets.MAVEN_S3_BUCKET }}
           S3_PATH_PREFIX: ${{ secrets.MAVEN_S3_PATH_PREFIX }}
         run: |
+          [ -n "$AWS_ACCESS_KEY_ID" ]     || { echo "Error: MAVEN_S3_ACCESS_KEY not set" >&2; exit 1; }
+          [ -n "$AWS_SECRET_ACCESS_KEY" ] || { echo "Error: MAVEN_S3_SECRET_KEY not set" >&2; exit 1; }
+          [ -n "$S3_ENDPOINT" ]           || { echo "Error: MAVEN_S3_ENDPOINT not set" >&2; exit 1; }
+          [ -n "$S3_BUCKET" ]             || { echo "Error: MAVEN_S3_BUCKET not set" >&2; exit 1; }
           PREFIX="${S3_PATH_PREFIX:+${S3_PATH_PREFIX}/}"
           aws s3 sync "internal/maven/" "s3://${S3_BUCKET}/${PREFIX}" \
             --endpoint-url "$S3_ENDPOINT" --no-progress
 
+      # ── SSH / rsync ───────────────────────────────────────────────────────
       - name: "[ssh] Setup SSH key"
         if: ${{ vars.MAVEN_TARGET == 'ssh' }}
         run: |
+          [ -n "${{ secrets.MAVEN_SSH_KEY }}" ]  || { echo "Error: MAVEN_SSH_KEY not set" >&2; exit 1; }
+          [ -n "${{ secrets.MAVEN_SSH_HOST }}" ] || { echo "Error: MAVEN_SSH_HOST not set" >&2; exit 1; }
+          [ -n "${{ secrets.MAVEN_SSH_USER }}" ] || { echo "Error: MAVEN_SSH_USER not set" >&2; exit 1; }
+          [ -n "${{ secrets.MAVEN_SSH_PATH }}" ] || { echo "Error: MAVEN_SSH_PATH not set" >&2; exit 1; }
           mkdir -p ~/.ssh
           echo "${{ secrets.MAVEN_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
@@ -126,6 +138,7 @@ jobs:
             "internal/maven/" \
             "${{ secrets.MAVEN_SSH_USER }}@${{ secrets.MAVEN_SSH_HOST }}:${{ secrets.MAVEN_SSH_PATH }}/"
 
+      # ── Validation ────────────────────────────────────────────────────────
       - name: Validate maven target
         if: ${{ vars.MAVEN_TARGET == '' || (vars.MAVEN_TARGET != 'github-pages' && vars.MAVEN_TARGET != 'http' && vars.MAVEN_TARGET != 's3' && vars.MAVEN_TARGET != 'ssh') }}
         run: |

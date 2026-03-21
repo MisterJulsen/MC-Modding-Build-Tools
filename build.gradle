@@ -4,22 +4,40 @@ plugins {
     id 'maven-publish'
 }
 
-group = "net.mrjulsen.gradle"
-version = "1.0.12"
+group   = project.findProperty("group")   ?: "net.mrjulsen.gradle"
+version = project.findProperty("version") ?: "0.0.0"
 
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
     }
+    withSourcesJar()
+    withJavadocJar()
 }
 
 gradlePlugin {
     plugins {
         modBuildTools {
-            id = "net.mrjulsen.mod-build-tools"
+            id                  = project.findProperty("plugin_id") ?: "net.mrjulsen.mod-build-tools"
             implementationClass = "net.mrjulsen.gradle.ModBuildTools"
-            displayName = "Minecraft Modding Build Tools Plugin"
-            description = "Adds publishing configuration for Hetzner S3 Object Storage"
+            displayName         = "Minecraft Modding Build Tools"
+            description         = "Build and release automation for Minecraft mods using Architectury Loom. Handles versioning, metadata generation, multi-loader publishing, and workflow bootstrapping."
+        }
+    }
+}
+
+// java-gradle-plugin applies maven-publish automatically and creates a
+// "pluginMaven" publication. We only configure the repository target here.
+publishing {
+    repositories {
+        maven {
+            name = "Local"
+            // gradle.properties does not expand system properties, so we resolve
+            // ${user.home} manually here.
+            url = uri(
+                    (project.findProperty("maven_local_path") ?: "\${user.home}/.m2/mod-build-tools-local")
+                            .replace("\${user.home}", System.getProperty("user.home"))
+            )
         }
     }
 }
