@@ -195,8 +195,8 @@ jobs:
           files: ${{ steps.files.outputs.list }}
           modrinth-id: ${{ vars.MODRINTH_ID }}
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
-          curseforge-id: ${{ vars.CF_ID }}
-          curseforge-token: ${{ secrets.CF_TOKEN }}
+          curseforge-id: ${{ vars.CURSEFORGE_ID }}
+          curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
 
   # Maven – publishes the staged Maven repo to the configured target.
   #
