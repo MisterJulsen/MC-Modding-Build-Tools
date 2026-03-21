@@ -1,0 +1,25 @@
+plugins {
+    id 'groovy'
+    id 'java-gradle-plugin'
+    id 'maven-publish'
+}
+
+group = "net.mrjulsen.gradle"
+version = "1.0.11"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+gradlePlugin {
+    plugins {
+        modBuildTools {
+            id = "net.mrjulsen.mod-build-tools"
+            implementationClass = "net.mrjulsen.gradle.ModBuildTools"
+            displayName = "Minecraft Modding Build Tools Plugin"
+            description = "Adds publishing configuration for Hetzner S3 Object Storage"
+        }
+    }
+}
