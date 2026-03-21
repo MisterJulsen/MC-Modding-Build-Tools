@@ -22,8 +22,11 @@ class ScriptDownloader {
             "https://raw.githubusercontent.com/MisterJulsen/MC-Modding-Build-Tools/main/scripts"
 
     private static final List<String> WORKFLOW_FILES = [
+            "auto-port.yml",
+            "build.yml",
+            "publish.yml",
             "release.yml",
-            "publish.yml"
+            "snapshot.yml"
     ]
 
     private static final String CONFIG_TEMPLATE = ".mod-build-config.json"
