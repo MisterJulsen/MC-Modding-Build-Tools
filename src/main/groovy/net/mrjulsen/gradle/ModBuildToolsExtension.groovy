@@ -5,6 +5,8 @@ class ModBuildToolsExtension {
     String modId      = null
     String displayName = null
 
+    boolean overwriteWorkflows = false
+
     final PublishConfig   publish   = new PublishConfig()
     final JavadocConfig   javadoc   = new JavadocConfig()
     final VersioningConfig versioning = new VersioningConfig()
