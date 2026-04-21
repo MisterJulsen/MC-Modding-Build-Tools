@@ -28,7 +28,7 @@
     },
     {
       "inputs": ["updated", "update", "⬆️"],
-      "output": "⬆Updated"
+      "output": "Updated"
     }
   ],
   "release_channels": {
