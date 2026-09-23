@@ -758,6 +758,35 @@ publish.allowUnpublishedProjectDependencies = true.
                 .trim()
     }
 
+    private static final int MODRINTH_VERSION_LIMIT = 32
+
+    private static final int MODRINTH_NAME_LIMIT = 64
+
+    private static String platformVersion(Project project, ModBuildToolsExtension ext, String loader) {
+        def version = resolveVersion(project, ext)
+        def value = "${version}+${resolveMinecraftVersion(project, ext)}-${loader}".toString()
+
+        if (value.length() > MODRINTH_VERSION_LIMIT) {
+            throw new GradleException(
+                    "[ModBuildTools] Version number '${value}' is ${value.length()} characters long, " +
+                            "Modrinth allows at most ${MODRINTH_VERSION_LIMIT}. " +
+                            "Shorten mod_version in gradle.properties.")
+        }
+        return value
+    }
+
+    private static String platformTitle(String format, Project project, ModBuildToolsExtension ext, String loader) {
+        def value = expandTitle(format, project, ext, loader)
+
+        if (value.length() > MODRINTH_NAME_LIMIT) {
+            throw new GradleException(
+                    "[ModBuildTools] Release title '${value}' is ${value.length()} characters long, " +
+                            "Modrinth allows at most ${MODRINTH_NAME_LIMIT}. " +
+                            "Shorten mod_release_title_format in build_tools.config.")
+        }
+        return value
+    }
+
     private static void generateMetadata(Project project, ModBuildToolsExtension ext) {
         def version = resolveVersion(project, ext)
         def loaders = resolveLoaders(project, ext)
@@ -782,8 +811,8 @@ publish.allowUnpublishedProjectDependencies = true.
                     main_jar        : artifact.filename,
                     sources_jar     : artifact.sourcesJar ?: "",
                     javadoc_jar     : artifact.javadocJar ?: "",
-                    platform_version: artifact.filename.replaceFirst(/\.[^.]+$/, ""),
-                    platform_title  : expandTitle(platformTitleFormat, project, ext, loader)
+                    platform_version: platformVersion(project, ext, loader),
+                    platform_title  : platformTitle(platformTitleFormat, project, ext, loader)
             ]
         }
 
