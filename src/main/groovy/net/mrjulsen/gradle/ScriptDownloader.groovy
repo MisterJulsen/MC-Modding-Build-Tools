@@ -4,86 +4,271 @@ import groovy.json.JsonSlurper
 import org.gradle.api.GradleException
 import org.gradle.api.Project
 
-class ScriptDownloader {
+import java.util.regex.Pattern
 
-    private static final String REPO_OWNER = "MisterJulsen"
-    private static final String REPO_NAME = "MC-Modding-Build-Tools"
-    private static final String BRANCH = "main"
-    private static final String SCRIPTS_DIR = "install"
+final class ScriptDownloader {
 
-    private static final String RAW_BASE = "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}"
-    private static final String TREE_API = "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/git/trees/${BRANCH}?recursive=1"
+    private static final String API = "https://api.github.com"
+    private static final String RAW = "https://raw.githubusercontent.com"
+
+    private static final int CONNECT_TIMEOUT = 10000
+    private static final int READ_TIMEOUT = 30000
+
+    private ScriptDownloader() {}
 
     static void registerScriptSetupTask(Project project, ModBuildToolsExtension ext) {
+        if (project != project.rootProject) return
+
         project.tasks.register("setupModScripts") {
             group = ModBuildTools.GROUP
-            description = "Automatically installs all files from the install/ folder of the MisterJulsen/MC-Modding-Build-Tools repo into the project."
-
-            doLast {
-                project.logger.lifecycle("[ModBuildTools] Loading file list from GitHub ...")
-                def files = fetchScriptFiles()
-                project.logger.lifecycle("[ModBuildTools] Found ${files.size()} files.")
-
-                files.each { repoPath ->
-                    def relativePath = repoPath.substring("${SCRIPTS_DIR}/".length())
-                    def targetFile = project.file(relativePath)
-
-                    if (targetFile.exists() && !shouldOverwrite(ext, relativePath)) {
-                        project.logger.lifecycle("[ModBuildTools] Skip ${relativePath} (already exists)")
-                        return
-                    }
-
-                    targetFile.parentFile?.mkdirs()
-                    def rawUrl = "${RAW_BASE}/${repoPath}"
-                    project.logger.lifecycle("[ModBuildTools] Read ${relativePath} ...")
-                    downloadFile(rawUrl, targetFile)
-                    project.logger.lifecycle("[ModBuildTools] Installed: ${relativePath}")
-                }
-
-                project.logger.lifecycle("[ModBuildTools] setupModScripts done.")
-            }
+            description = "Installs the workflow and configuration files from the build tools repository"
+            doLast { install(project, ext.scripts, project.hasProperty("dryRun")) }
         }
     }
 
-    private static List<String> fetchScriptFiles() {
-        def url = new URL(TREE_API)
-        def conn = (HttpURLConnection) url.openConnection()
-        conn.connectTimeout = 10000
-        conn.readTimeout = 30000
-        conn.setRequestProperty("Accept", "application/vnd.github+json")
-        conn.connect()
+    private static void install(Project project, ModBuildToolsExtension.ScriptsConfig cfg, boolean dryRun) {
+        def repository = validateRepository(cfg)
+        def directory = cfg.directory.replaceAll('^/+|/+$', "")
 
-        if (conn.responseCode != 200) {
-            throw new GradleException("[ModBuildTools] GitHub API error (HTTP ${conn.responseCode}). Please check your internet connection and whether the repo exists or not.")
+        def commit = resolveCommit(repository, cfg.ref)
+        project.logger.lifecycle("[ModBuildTools] ${repository}@${cfg.ref} -> ${commit.take(7)}")
+
+        def files = listFiles(repository, commit, directory)
+        if (files.isEmpty()) {
+            throw new GradleException(
+                    "[ModBuildTools] '${directory}/' is empty in ${repository}@${cfg.ref}. " +
+                            "Check scripts.directory.")
         }
 
-        def json = new JsonSlurper().parse(conn.inputStream)
+        def installed = []
+        def updated = []
+        def skipped = []
+
+        files.sort().each { String path ->
+            def relative = path.substring(directory.length() + 1)
+            def target = project.rootProject.file(relative)
+            def exists = target.exists()
+
+            if (exists && !isManaged(cfg, relative)) {
+                skipped << relative
+                return
+            }
+
+            if (!dryRun) {
+                def content = download("${RAW}/${repository}/${commit}/${path}")
+                if (exists && content == readBytes(target)) {
+                    skipped << relative
+                    return
+                }
+                write(target, content)
+            }
+
+            (exists ? updated : installed) << relative
+        }
+
+        def stale = findStale(project, cfg, files.collect { it.substring(directory.length() + 1) })
+        report(project, dryRun, installed, updated, skipped)
+        handleStale(project, cfg, dryRun, stale)
+    }
+
+    private static List<String> findStale(Project project, ModBuildToolsExtension.ScriptsConfig cfg,
+                                          List<String> expected) {
+        if (cfg.managed.isEmpty()) return []
+
+        def root = project.rootProject.projectDir
+        def stale = []
+
+        project.rootProject.fileTree(root) { tree ->
+            tree.include(cfg.managed)
+            tree.exclude("**/build/**", "**/.gradle/**", "**/.git/**")
+        }.each { File file ->
+            def relative = root.toPath().relativize(file.toPath()).toString().replace('\\', '/')
+            if (!expected.contains(relative)) stale << relative
+        }
+
+        return stale.sort()
+    }
+
+    private static void handleStale(Project project, ModBuildToolsExtension.ScriptsConfig cfg,
+                                    boolean dryRun, List<String> stale) {
+        if (stale.isEmpty()) return
+
+        if (!cfg.prune) {
+            project.logger.warn(
+                    "[ModBuildTools] ${stale.size()} managed file(s) no longer exist upstream:\n" +
+                            stale.collect { "  ${it}" }.join("\n") +
+                            "\nDelete them, or set scripts.prune = true to have this task do it.")
+            return
+        }
+
+        stale.each { relative ->
+            if (!dryRun) project.rootProject.file(relative).delete()
+            project.logger.lifecycle("[ModBuildTools] ${dryRun ? 'Would delete' : 'Deleted'} ${relative}")
+        }
+    }
+
+    private static void report(Project project, boolean dryRun,
+                               List<String> installed, List<String> updated, List<String> skipped) {
+        def out = new StringBuilder("\n")
+        def verb = dryRun ? "would be " : ""
+
+        [("new, ${verb}installed".toString()): installed,
+         ("changed, ${verb}replaced".toString()): updated,
+         ("unchanged or kept".toString()): skipped].each { label, entries ->
+            if (entries.isEmpty()) return
+            out << "${entries.size()} ${label}\n"
+            entries.each { out << "  ${it}\n" }
+        }
+
+        if (installed.isEmpty() && updated.isEmpty()) {
+            out << "Everything is up to date.\n"
+        } else if (dryRun) {
+            out << "\nDry run - nothing was written. Run without -PdryRun to apply.\n"
+        }
+
+        project.logger.lifecycle(out.toString())
+    }
+
+    private static boolean isManaged(ModBuildToolsExtension.ScriptsConfig cfg, String relative) {
+        if (cfg.overwriteAll) return true
+        return cfg.managed.any { pattern -> matches(pattern, relative) }
+    }
+
+    static boolean matches(String pattern, String path) {
+        def regex = new StringBuilder("^")
+        def i = 0
+
+        while (i < pattern.length()) {
+            if (pattern.startsWith("**/", i)) {
+                regex << "(?:.*/)?"
+                i += 3
+                continue
+            }
+            if (pattern.startsWith("**", i)) {
+                regex << ".*"
+                i += 2
+                continue
+            }
+
+            def c = pattern.charAt(i)
+            if (c == ('*' as char)) {
+                regex << "[^/]*"
+            } else if (c == ('?' as char)) {
+                regex << "[^/]"
+            } else {
+                regex << Pattern.quote(c.toString())
+            }
+            i++
+        }
+
+        regex << "\$"
+        return path ==~ regex.toString()
+    }
+
+    private static String validateRepository(ModBuildToolsExtension.ScriptsConfig cfg) {
+        def repository = cfg.repository?.trim()
+        if (!(repository ==~ /^[\w.-]+\/[\w.-]+$/)) {
+            throw new GradleException(
+                    "[ModBuildTools] scripts.repository must be 'owner/name', got '${cfg.repository}'.")
+        }
+        return repository
+    }
+
+    private static String resolveCommit(String repository, String ref) {
+        def json = api("${API}/repos/${repository}/commits/${ref}",
+                "Cannot resolve '${ref}' in ${repository}")
+        return json.sha.toString()
+    }
+
+    private static List<String> listFiles(String repository, String commit, String directory) {
+        def json = api("${API}/repos/${repository}/git/trees/${commit}?recursive=1",
+                "Cannot list the files of ${repository}@${commit.take(7)}")
+
+        if (json.truncated) {
+            throw new GradleException(
+                    "[ModBuildTools] The file listing of ${repository} was truncated by GitHub. " +
+                            "The repository is too large to install from.")
+        }
 
         return json.tree
-                .findAll { it.type == "blob" && it.path.startsWith("${SCRIPTS_DIR}/") }
-                .collect { it.path }
+                .findAll { it.type == "blob" && it.path.startsWith("${directory}/") }
+                .collect { it.path.toString() }
     }
 
-    private static boolean shouldOverwrite(ModBuildToolsExtension ext, String relativePath) {
-        return ext.overwriteWorkflows
+    private static Object api(String url, String context) {
+        def connection = open(url)
+        connection.setRequestProperty("Accept", "application/vnd.github+json")
+
+        def code = connection.responseCode
+        if (code != 200) {
+            throw new GradleException("[ModBuildTools] ${context} (HTTP ${code}).${hint(code)}")
+        }
+        return new JsonSlurper().parse(connection.inputStream)
     }
 
-    private static void downloadFile(String urlString, File target) {
+    private static byte[] download(String url) {
+        def connection = open(url)
+
+        def code = connection.responseCode
+        if (code != 200) {
+            throw new GradleException("[ModBuildTools] Download failed: ${url} (HTTP ${code}).${hint(code)}")
+        }
+        return connection.inputStream.bytes
+    }
+
+    private static HttpURLConnection open(String url) {
+        HttpURLConnection connection
         try {
-            def url = new URL(urlString)
-            def conn = (HttpURLConnection) url.openConnection()
-            conn.connectTimeout = 10000
-            conn.readTimeout = 30000
-            conn.instanceFollowRedirects = true
-            conn.connect()
-
-            if (conn.responseCode != 200) {
-                throw new GradleException("[ModBuildTools] Download failed: ${urlString} (HTTP ${conn.responseCode})")
-            }
-
-            target.withOutputStream { out -> out << conn.inputStream }
+            connection = (HttpURLConnection) new URL(url).openConnection()
         } catch (IOException e) {
-            throw new GradleException("[ModBuildTools] Unable to download ${urlString}: ${e.message}", e)
+            throw new GradleException("[ModBuildTools] Cannot reach ${url}: ${e.message}", e)
+        }
+
+        connection.connectTimeout = CONNECT_TIMEOUT
+        connection.readTimeout = READ_TIMEOUT
+        connection.instanceFollowRedirects = true
+
+        def token = System.getenv("GITHUB_TOKEN") ?: System.getenv("GH_TOKEN")
+        if (token) connection.setRequestProperty("Authorization", "Bearer ${token}")
+
+        return connection
+    }
+
+    private static String hint(int code) {
+        if (code == 403 || code == 429) {
+            return " GitHub is rate limiting anonymous requests - set GITHUB_TOKEN to raise the limit."
+        }
+        if (code == 404 || code == 422) {
+            return " Check scripts.repository, scripts.ref and scripts.directory, and whether the repository is private."
+        }
+        if (code == 401) {
+            return " GITHUB_TOKEN is set but not accepted - it may be expired or lack repository access."
+        }
+        return ""
+    }
+
+    private static byte[] readBytes(File file) {
+        try {
+            return file.bytes
+        } catch (IOException ignored) {
+            return null
+        }
+    }
+
+    private static void write(File target, byte[] content) {
+        target.parentFile?.mkdirs()
+
+        def temp = new File(target.parentFile, "${target.name}.mbt-tmp")
+        try {
+            temp.bytes = content
+            if (!temp.renameTo(target)) {
+                target.delete()
+                if (!temp.renameTo(target)) {
+                    throw new GradleException("[ModBuildTools] Cannot write ${target}")
+                }
+            }
+        } finally {
+            temp.delete()
         }
     }
 }
