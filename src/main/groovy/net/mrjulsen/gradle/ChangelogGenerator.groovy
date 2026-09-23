@@ -58,9 +58,9 @@ final class ChangelogGenerator {
             return out.toString()
         }
 
-        grouped.each { heading, entries ->
-            out << "\n### ${heading}\n"
-            entries.each { out << "- ${it}\n" }
+        out << "\n"
+        grouped.each { label, entries ->
+            entries.each { out << "- ${label}: ${it}\n" }
         }
 
         return out.toString()
