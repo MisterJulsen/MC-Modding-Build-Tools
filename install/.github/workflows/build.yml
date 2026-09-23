@@ -82,7 +82,7 @@ jobs:
           ls -1 pr-dist
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-pr${{ github.event.pull_request.number }}
           path: pr-dist/*

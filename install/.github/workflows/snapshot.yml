@@ -18,7 +18,6 @@ jobs:
       enabled: ${{ steps.read.outputs.enabled }}
       version_branch: ${{ steps.read.outputs.version_branch }}
       retention_days: ${{ steps.read.outputs.retention_days }}
-      rolling_release: ${{ steps.read.outputs.rolling_release }}
       java_versions: ${{ steps.read.outputs.java_versions }}
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +33,6 @@ jobs:
           {
             echo "enabled=$(jq -r '.snapshot.enabled // true' "$CONFIG")"
             echo "retention_days=$(jq -r '.snapshot.retention_days // 30' "$CONFIG")"
-            echo "rolling_release=$(jq -r '.snapshot.rolling_release // false' "$CONFIG")"
             echo "version_branch=$(jq -r --arg b "$GITHUB_REF_NAME" 'any(.version_branches[]?; . == $b)' "$CONFIG")"
             echo "java_versions<<EOF"
             jq -r '(.java_versions // [17, 21])[]' "$CONFIG"
@@ -54,7 +52,7 @@ jobs:
     if: needs.config.outputs.enabled == 'true' && needs.config.outputs.version_branch == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Checkout repository
@@ -127,26 +125,24 @@ jobs:
           echo "version=$(jq -r '.full_version' metadata.json)" >> "$GITHUB_OUTPUT"
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: snapshot-${{ steps.collect.outputs.version }}
           path: snapshot-dist/*
           retention-days: ${{ needs.config.outputs.retention_days }}
 
-      - name: Update rolling prerelease
-        if: needs.config.outputs.rolling_release == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.collect.outputs.version }}
+      - name: Summary
         run: |
-          TAG="snapshot-$(echo "$GITHUB_REF_NAME" | tr '/' '-')"
-          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" snapshot-dist/*.jar \
-            --target "$GITHUB_SHA" \
-            --title "Snapshot $GITHUB_REF_NAME - $VERSION" \
-            --prerelease \
-            --notes "Automatic snapshot of \`$GITHUB_REF_NAME\` at ${GITHUB_SHA:0:7}.
-
-          Version: \`$VERSION\`
-
-          Unstable development build. It is replaced by the next push to this branch and is not meant for production use."
+          {
+            echo "### Snapshot ${{ steps.collect.outputs.version }}"
+            echo ""
+            echo "Branch \`$GITHUB_REF_NAME\` at \`${GITHUB_SHA:0:7}\`."
+            echo ""
+            echo "Download: artifact \`snapshot-${{ steps.collect.outputs.version }}\` on this run."
+            echo ""
+            echo "| File |"
+            echo "|---|"
+            for FILE in $(ls -1 snapshot-dist); do
+              echo "| \`$FILE\` |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

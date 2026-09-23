@@ -48,7 +48,7 @@ jobs:
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
 
       - name: Download build data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: internal-${{ github.event.release.tag_name }}
           run-id: ${{ steps.source.outputs.run_id }}
@@ -78,13 +78,11 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Upload release data
-        uses: actions/upload-artifact@v4
+      - name: Upload release notes
+        uses: actions/upload-artifact@v5
         with:
           name: release-data
-          path: |
-            internal/metadata.json
-            release-notes.md
+          path: release-notes.md
           retention-days: 1
 
       - name: Summary
@@ -106,6 +104,9 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.curseforge == 'true' || needs.prepare.outputs.modrinth == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
 
     strategy:
       fail-fast: false
@@ -113,39 +114,54 @@ jobs:
         loader: ${{ fromJson(needs.prepare.outputs.loaders) }}
 
     steps:
-      - name: Download release data
-        uses: actions/download-artifact@v4
+      - name: Download release notes
+        uses: actions/download-artifact@v5
         with:
           name: release-data
+
+      - name: Download build data
+        uses: actions/download-artifact@v5
+        with:
+          name: internal-${{ github.event.release.tag_name }}
+          run-id: ${{ needs.prepare.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: internal/
 
       - name: Resolve loader files
         id: loader
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
           LOADER: ${{ matrix.loader }}
         run: |
           META=internal/metadata.json
-          mkdir -p release-assets
+          ASSETS=internal/assets
 
           get() { jq -r --arg l "$LOADER" ".artifacts[\$l].$1" "$META"; }
+
+          FILES=()
+          for KIND in main_jar sources_jar javadoc_jar; do
+            FILE=$(get "$KIND")
+            [ -n "$FILE" ] && [ "$FILE" != "null" ] || continue
+            if [ -f "${ASSETS}/${FILE}" ]; then
+              FILES+=("${ASSETS}/${FILE}")
+            else
+              echo "::warning::Build asset not found for ${LOADER}: ${FILE}"
+            fi
+          done
+
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "::error::No jars for ${LOADER} in the build data of this release."
+            find internal -maxdepth 2 -type f | head -40
+            exit 1
+          fi
+
+          echo "Publishing:"
+          printf '  %s\n' "${FILES[@]}"
 
           {
             echo "name=$(get 'platform_title')"
             echo "version=$(get 'platform_version')"
-          } >> "$GITHUB_OUTPUT"
-
-          {
             echo "files<<EOF"
-            for KIND in main_jar sources_jar javadoc_jar; do
-              FILE=$(get "$KIND")
-              [ -n "$FILE" ] && [ "$FILE" != "null" ] || continue
-              if gh release download "$TAG" --pattern "$FILE" --dir release-assets --clobber 2>/dev/null; then
-                echo "release-assets/${FILE}"
-              else
-                echo "::warning::Release asset not found: ${FILE}" >&2
-              fi
-            done
+            printf '%s\n' "${FILES[@]}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -176,7 +192,7 @@ jobs:
 
     steps:
       - name: Download build data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: internal-${{ github.event.release.tag_name }}
           run-id: ${{ needs.prepare.outputs.run_id }}

@@ -150,7 +150,7 @@ modBuildTools {
 {
   "version_branches": ["mc/1.20.1", "mc/1.21.1"],
   "java_versions": [17, 21],
-  "snapshot":  { "enabled": true, "retention_days": 30, "rolling_release": true },
+  "snapshot":  { "enabled": true, "retention_days": 30 },
   "auto_port": { "enabled": true, "draft_on_conflict": true },
   "github_release_title_format": "{MOD_NAME} {MOD_VERSION} - Minecraft {MC_VERSION}",
   "mod_release_title_format": "{MOD_NAME} {MOD_VERSION} - Minecraft {MC_VERSION} ({LOADER_NAME})",
@@ -165,7 +165,7 @@ modBuildTools {
 |---|---|
 | `version_branches` | the Minecraft version branches; snapshots and auto port only act on these |
 | `java_versions` | JDKs the workflows install; the Gradle toolchain picks the right one |
-| `snapshot.rolling_release` | keeps one prerelease per branch (tag `snapshot-<branch>`), no login needed |
+| `snapshot.retention_days` | how long the snapshot workflow artifacts are kept |
 | `auto_port.draft_on_conflict` | ports with conflicts become draft pull requests |
 | `*_title_format` | placeholders: `{MOD_ID} {MOD_NAME} {MOD_VERSION} {FULL_VERSION} {MC_VERSION} {RELEASE_CHANNEL} {PLATFORMS} {LOADER} {LOADER_NAME}` |
 | `changelog_categories` | commit prefixes and their headings |
@@ -209,7 +209,7 @@ deploy key with write access on the Maven repository, private part as
 | File | Runs on | Does |
 |---|---|---|
 | `build.yml` | pull request | builds every loader, version `…+pr.N.<sha>` |
-| `snapshot.yml` | push to a version branch | builds and attaches the jars, optional rolling prerelease, version `…+build.N.<sha>` |
+| `snapshot.yml` | push to a version branch | builds every loader, jars only as a workflow artifact, version `…+build.N.<sha>` |
 | `auto-port.yml` | merged pull request | applies the same change to the other version branches as pull requests |
 | `release.yml` | manual, with CurseForge / Modrinth / Maven checkboxes | builds all jars and opens a **draft release** |
 | `publish.yml` | release published | uploads to the selected targets |

@@ -151,8 +151,9 @@ jobs:
       - name: Prepare internal artifact
         id: internal
         run: |
-          mkdir -p internal-staging
+          mkdir -p internal-staging/assets
           cp metadata.json internal-staging/metadata.json
+          rsync -a release-assets/ internal-staging/assets/
 
           jq -n \
             --argjson curseforge ${{ inputs.curseforge }} \
@@ -169,7 +170,7 @@ jobs:
           cat internal-staging/release_plan.json
 
       - name: Upload internal artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: internal-${{ steps.meta.outputs.tag }}
           path: internal-staging/
