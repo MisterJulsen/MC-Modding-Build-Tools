@@ -150,6 +150,7 @@ modBuildTools {
 {
   "version_branches": ["mc/1.20.1", "mc/1.21.1"],
   "java_versions": [17, 21],
+  "environment": "both",
   "snapshot":  { "enabled": true, "retention_days": 30 },
   "auto_port": { "enabled": true, "draft_on_conflict": true },
   "github_release_title_format": "{MOD_NAME} {MOD_VERSION} - Minecraft {MC_VERSION}",
@@ -165,6 +166,7 @@ modBuildTools {
 |---|---|
 | `version_branches` | the Minecraft version branches; snapshots and auto port only act on these |
 | `java_versions` | JDKs the workflows install; the Gradle toolchain picks the right one |
+| `environment` | sides the mod supports: `both`, `client`, `server`, `singleplayer`, `dedicated-server`; combine with `\|`, suffix `?` optional, `*` preferred |
 | `snapshot.retention_days` | how long the snapshot workflow artifacts are kept |
 | `auto_port.draft_on_conflict` | ports with conflicts become draft pull requests |
 | `*_title_format` | placeholders: `{MOD_ID} {MOD_NAME} {MOD_VERSION} {FULL_VERSION} {MC_VERSION} {RELEASE_CHANNEL} {PLATFORMS} {LOADER} {LOADER_NAME}` |

@@ -758,6 +758,39 @@ publish.allowUnpublishedProjectDependencies = true.
                 .trim()
     }
 
+    private static final List<String> ENVIRONMENT_TOKENS = [
+            "client", "server", "singleplayer", "dedicated_server", "dedicated-server",
+            "both", "all", "any", "*"
+    ]
+
+    private static String resolveEnvironment(Project project) {
+        def raw = trimmed(readConfig(project).environment) ?: "both"
+        def parts = raw.tokenize("|").collect { it.trim() }.findAll { !it.isEmpty() }
+
+        if (parts.isEmpty()) {
+            throw new GradleException(
+                    "[ModBuildTools] 'environment' in ${CONFIG_FILE} is empty. " +
+                            "Use one of ${ENVIRONMENT_TOKENS.join(', ')}, " +
+                            "combined with '|' and optionally suffixed with '?' or '*'.")
+        }
+
+        parts.each { part ->
+            def token = part.toLowerCase()
+            if (token != "*" && (token.endsWith("?") || token.endsWith("*"))) {
+                token = token.substring(0, token.length() - 1)
+            }
+            if (!ENVIRONMENT_TOKENS.contains(token)) {
+                throw new GradleException(
+                        "[ModBuildTools] Unknown environment '${part}' in ${CONFIG_FILE}. " +
+                                "Allowed: ${ENVIRONMENT_TOKENS.join(', ')} - " +
+                                "combined with '|', optionally suffixed with '?' (optional) " +
+                                "or '*' (preferred).")
+            }
+        }
+
+        return parts.join("|")
+    }
+
     private static final int MODRINTH_VERSION_LIMIT = 32
 
     private static final int MODRINTH_NAME_LIMIT = 64
@@ -822,6 +855,7 @@ publish.allowUnpublishedProjectDependencies = true.
                 full_version      : version.toString(),
                 is_prerelease     : version.prerelease,
                 release_channel   : version.channel,
+                environment       : resolveEnvironment(project),
                 git_tag           : gitTag(project, ext),
                 release_title     : expandTitle(githubTitleFormat, project, ext, null),
                 maven_local_path  : resolveLocalRepoDir(project, ext).absolutePath,

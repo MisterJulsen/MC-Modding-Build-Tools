@@ -22,6 +22,7 @@ jobs:
       mc_version: ${{ steps.plan.outputs.mc_version }}
       java_version: ${{ steps.plan.outputs.java_version }}
       release_channel: ${{ steps.plan.outputs.release_channel }}
+      environment: ${{ steps.plan.outputs.environment }}
       dependencies: ${{ steps.plan.outputs.dependencies }}
 
     steps:
@@ -70,6 +71,7 @@ jobs:
             echo "mc_version=$(jq -r '.minecraft_version' "$META")"
             echo "java_version=$(jq -r '.java_version' "$META")"
             echo "release_channel=$(jq -r '.release_channel' "$META")"
+            echo "environment=$(jq -r '.environment // "both"' "$META")"
             echo "curseforge=$(jq -r '.curseforge' "$PLAN")"
             echo "modrinth=$(jq -r '.modrinth' "$PLAN")"
             echo "maven=$(jq -r '.maven' "$PLAN")"
@@ -95,6 +97,7 @@ jobs:
             echo "| Loaders | $(jq -r '.loaders | join(", ")' internal/metadata.json) |"
             echo "| Minecraft | ${{ steps.plan.outputs.mc_version }} (Java ${{ steps.plan.outputs.java_version }}) |"
             echo "| Channel | ${{ steps.plan.outputs.release_channel }} |"
+            echo "| Environment | ${{ steps.plan.outputs.environment }} |"
             echo "| CurseForge | ${{ steps.plan.outputs.curseforge }} |"
             echo "| Modrinth | ${{ steps.plan.outputs.modrinth }} |"
             echo "| Maven | ${{ steps.plan.outputs.maven }} |"
@@ -173,6 +176,7 @@ jobs:
           version-type: ${{ needs.prepare.outputs.release_channel }}
           game-versions: ${{ needs.prepare.outputs.mc_version }}
           loaders: ${{ matrix.loader }}
+          environment: ${{ needs.prepare.outputs.environment }}
           java: ${{ needs.prepare.outputs.java_version }}
           changelog-file: release-notes.md
           files: ${{ steps.loader.outputs.files }}
