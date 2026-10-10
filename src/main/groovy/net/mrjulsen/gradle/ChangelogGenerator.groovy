@@ -4,7 +4,6 @@ import groovy.json.JsonSlurper
 import org.gradle.api.GradleException
 import org.gradle.api.Project
 
-import java.text.SimpleDateFormat
 import java.util.regex.Pattern
 
 final class ChangelogGenerator {
@@ -47,18 +46,11 @@ final class ChangelogGenerator {
 
         grouped = grouped.findAll { !it.value.isEmpty() }
 
-        def version = ModBuildTools.resolveVersion(project, ext)
+        // No title and no date: the release title, the store pages and the Discord
+        // announcement show name, version and date on their own.
+        if (grouped.isEmpty()) return "No changes recorded.\n"
+
         def out = new StringBuilder()
-        out << "## ${ModBuildTools.resolveDisplayName(project, ext)} ${version.baseVersion}"
-        out << " - Minecraft ${ModBuildTools.resolveMinecraftVersion(project, ext)}\n"
-        out << "*${new SimpleDateFormat('yyyy-MM-dd').format(new Date())}*\n"
-
-        if (grouped.isEmpty()) {
-            out << "\nNo changes recorded.\n"
-            return out.toString()
-        }
-
-        out << "\n"
         grouped.each { label, entries ->
             entries.each { out << "- ${label}: ${it}\n" }
         }

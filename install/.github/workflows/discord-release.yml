@@ -1,0 +1,150 @@
+name: Announce Release on Discord
+
+# Manual on purpose: publish the drafts first, then announce once - for a single
+# Minecraft version or for several of them in one combined message.
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "Tags to announce, space separated, globs allowed (v3.1.0+mc*). Empty = the newest release."
+        type: string
+        required: false
+        default: ""
+      ping:
+        description: "Ping (uses discord.release.mention)"
+        type: boolean
+        required: false
+        default: true
+      dry_run:
+        description: "Dry run: only show the message in the run summary"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: discord-release
+  cancel-in-progress: false
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout configuration and script
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            build_tools.config
+            .github/discord
+          sparse-checkout-cone-mode: false
+
+      - name: Select the releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PATTERNS: ${{ inputs.tags }}
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            --json tagName,isDraft,publishedAt \
+            --jq 'map(select(.isDraft == false)) | sort_by(.publishedAt) | reverse' > all-releases.json
+
+          mapfile -t TAGS < <(jq -r '.[].tagName' all-releases.json)
+          if [ "${#TAGS[@]}" -eq 0 ]; then
+            echo "::error::This repository has no published releases."
+            exit 1
+          fi
+
+          SELECTED=()
+          if [ -z "$(printf '%s' "$PATTERNS" | tr -d '[:space:]')" ]; then
+            SELECTED=("${TAGS[0]}")
+            echo "No tags given, announcing the newest release: ${TAGS[0]}"
+          else
+            for PATTERN in $(printf '%s' "$PATTERNS" | tr ',;' '  '); do
+              MATCHED=0
+              for TAG in "${TAGS[@]}"; do
+                # Unquoted on purpose, that is what makes 'v3.1.0+mc*' work.
+                case "$TAG" in
+                  $PATTERN) SELECTED+=("$TAG"); MATCHED=1 ;;
+                esac
+              done
+              if [ "$MATCHED" -eq 0 ]; then
+                echo "::warning::Nothing matched '${PATTERN}'."
+              fi
+            done
+          fi
+
+          UNIQUE=()
+          for TAG in "${SELECTED[@]}"; do
+            case " ${UNIQUE[*]} " in
+              *" ${TAG} "*) continue ;;
+            esac
+            UNIQUE+=("$TAG")
+          done
+
+          if [ "${#UNIQUE[@]}" -eq 0 ]; then
+            echo "::error::No release matched '${PATTERNS}'. Published tags: ${TAGS[*]}"
+            exit 1
+          fi
+
+          printf 'Announcing %s release(s):\n' "${#UNIQUE[@]}"
+          printf '  %s\n' "${UNIQUE[@]}"
+          printf '%s\n' "${UNIQUE[@]}" > selected-tags.txt
+
+      # One entry per release: the release itself plus the metadata.json of its
+      # build, which carries mod name, version and loaders.
+      - name: Collect the release data
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          : > entries.jsonl
+
+          while read -r TAG; do
+            [ -n "$TAG" ] || continue
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --json name,body,url,tagName,isPrerelease,publishedAt > release-view.json
+
+            META=null
+            RUN_ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=20&name=internal-${TAG}" \
+              --jq '[.artifacts[] | select(.expired == false)][0].workflow_run.id' 2>/dev/null || true)
+
+            if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
+              rm -rf build-data && mkdir -p build-data
+              if gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" -n "internal-${TAG}" -D build-data \
+                 && [ -f build-data/metadata.json ]; then
+                META=$(cat build-data/metadata.json)
+              else
+                echo "::warning::Could not read the build data of ${TAG}."
+              fi
+            else
+              echo "::warning::No build data for ${TAG}; the artifact has expired or it was not built by release.yml."
+            fi
+
+            jq -c --argjson meta "$META" \
+              '{tag: .tagName, name, body, url, prerelease: .isPrerelease, published_at: .publishedAt, metadata: $meta}' \
+              release-view.json >> entries.jsonl
+          done < selected-tags.txt
+
+          jq -s 'sort_by(.published_at) | reverse' entries.jsonl > releases.json
+          jq -r '.[] | "  \(.tag) -> Minecraft \(.metadata.minecraft_version // "?"), loaders \(.metadata.loaders // ["?"] | join("/"))"' releases.json
+
+      - name: Post the announcement
+        env:
+          DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          GITHUB_VARS_JSON: ${{ toJSON(vars) }}
+          MBT_RELEASES: releases.json
+          MBT_PING: ${{ inputs.ping }}
+          MBT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ -z "$DISCORD_RELEASE_WEBHOOK" ] && [ "$MBT_DRY_RUN" != "true" ]; then
+            echo "::error::DISCORD_RELEASE_WEBHOOK is not set."
+            exit 1
+          fi
+          if [ ! -f .github/discord/discord_notify.py ]; then
+            echo "::error::.github/discord/discord_notify.py is missing. Run './gradlew setupModScripts' and commit the result."
+            exit 1
+          fi
+          python3 .github/discord/discord_notify.py release

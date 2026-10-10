@@ -850,6 +850,9 @@ publish.allowUnpublishedProjectDependencies = true.
         }
 
         def output = [
+                mod_id            : resolveModId(project, ext),
+                mod_name          : resolveDisplayName(project, ext),
+                mod_version       : version.baseVersion,
                 minecraft_version : resolveMinecraftVersion(project, ext),
                 java_version      : resolveJavaVersion(project, ext),
                 full_version      : version.toString(),

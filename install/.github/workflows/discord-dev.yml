@@ -1,0 +1,67 @@
+name: Discord Dev Feed
+
+# Every event type can be switched on and off separately under
+# "discord": { "dev": { "events": { ... } } } in build_tools.config.
+# The triggers below only decide what GitHub offers the workflow at all.
+on:
+  push:
+  pull_request_target:
+    types: [opened, reopened, closed, ready_for_review]
+  pull_request_review:
+    types: [submitted]
+  issues:
+    types: [opened, closed, reopened]
+  issue_comment:
+    types: [created]
+  discussion:
+    types: [created, answered]
+  discussion_comment:
+    types: [created]
+  release:
+    types: [published]
+  watch:
+    types: [started]
+  fork:
+  workflow_run:
+    # Add your own workflow names here if you want their failures reported.
+    workflows:
+      - Build Test
+      - Snapshot Build
+      - Create Release
+      - Publish Release
+      - Auto Port
+      - Crowdin Sync
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Nothing from the event is ever executed, only read: the script and the
+      # configuration come from the repository itself.
+      - name: Checkout configuration and script
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            build_tools.config
+            .github/discord
+          sparse-checkout-cone-mode: false
+
+      - name: Post to the development channel
+        env:
+          DISCORD_DEV_WEBHOOK: ${{ secrets.DISCORD_DEV_WEBHOOK }}
+          GITHUB_VARS_JSON: ${{ toJSON(vars) }}
+        run: |
+          if [ -z "$DISCORD_DEV_WEBHOOK" ]; then
+            echo "DISCORD_DEV_WEBHOOK is not set, nothing to do."
+            exit 0
+          fi
+          if [ ! -f .github/discord/discord_notify.py ]; then
+            echo "::error::.github/discord/discord_notify.py is missing. Run './gradlew setupModScripts' and commit the result."
+            exit 1
+          fi
+          python3 .github/discord/discord_notify.py dev

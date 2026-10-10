@@ -1,0 +1,82 @@
+name: Discord Issue Forum
+
+on:
+  issues:
+    types: [opened, edited, closed, reopened]
+  issue_comment:
+    types: [created]
+  # Only needed for the optional Discord -> GitHub direction.
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: discord-issues-${{ github.event.issue.number || github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.event_name == 'issues' || github.event_name == 'issue_comment'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout configuration and script
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: |
+            build_tools.config
+            .github/discord
+          sparse-checkout-cone-mode: false
+
+      - name: Mirror the issue into the forum channel
+        env:
+          DISCORD_ISSUE_WEBHOOK: ${{ secrets.DISCORD_ISSUE_WEBHOOK }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
+          DISCORD_ISSUE_FORUM_ID: ${{ vars.DISCORD_ISSUE_FORUM_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_VARS_JSON: ${{ toJSON(vars) }}
+        run: |
+          if [ -z "$DISCORD_ISSUE_WEBHOOK" ]; then
+            echo "DISCORD_ISSUE_WEBHOOK is not set, nothing to do."
+            exit 0
+          fi
+          if [ ! -f .github/discord/discord_notify.py ]; then
+            echo "::error::.github/discord/discord_notify.py is missing. Run './gradlew setupModScripts' and commit the result."
+            exit 1
+          fi
+          python3 .github/discord/discord_notify.py issue
+
+  # Reads new messages out of the forum posts and copies them into their
+  # issues. Needs a bot token, and does nothing unless
+  # discord.issues.mirror_discord_messages is on.
+  sync:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout configuration and script
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            build_tools.config
+            .github/discord
+          sparse-checkout-cone-mode: false
+
+      - name: Copy new Discord messages into their issues
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_VARS_JSON: ${{ toJSON(vars) }}
+        run: |
+          if [ ! -f .github/discord/discord_notify.py ]; then
+            echo "::error::.github/discord/discord_notify.py is missing. Run './gradlew setupModScripts' and commit the result."
+            exit 1
+          fi
+          python3 .github/discord/discord_notify.py sync

@@ -248,7 +248,7 @@ class ModBuildToolsExtension {
 
         String directory = "install"
 
-        List<String> managed = [".github/workflows/**"]
+        List<String> managed = [".github/workflows/**", ".github/discord/**"]
 
         boolean overwriteAll = false
 
