@@ -176,33 +176,108 @@ modBuildTools {
 
 ## GitHub secrets and variables
 
-**Settings → Secrets and variables → Actions**
+**Settings → Secrets and variables → Actions**, tab *Secrets* or *Variables*,
+always *Repository* level.
 
-| Secret | Needed for |
-|---|---|
-| `MODRINTH_TOKEN` | Modrinth upload |
-| `CURSEFORGE_TOKEN` | CurseForge upload |
-| `CROWDIN_TOKEN` | Crowdin sync |
-| `AUTO_PORT_TOKEN` | optional PAT so port pull requests trigger builds |
-| `MAVEN_GITHUB_DEPLOY_KEY` | `MAVEN_TARGET=github-pages` |
-| `MAVEN_HTTP_USERNAME`, `MAVEN_HTTP_PASSWORD` | `MAVEN_TARGET=http` |
-| `MAVEN_S3_ACCESS_KEY`, `MAVEN_S3_SECRET_KEY` | `MAVEN_TARGET=s3` |
-| `MAVEN_SSH_KEY` | `MAVEN_TARGET=ssh` |
+* **Secrets** are encrypted, masked in the logs and cannot be read back later —
+  if you forget one, create a new token instead of looking it up.
+* **Variables** are plain text and visible in the logs — ids and urls only.
+* `GITHUB_TOKEN` is supplied by Actions itself. Never add it.
 
-| Variable | Example | Needed for |
+Nothing is required to start: `build.yml`, `snapshot.yml` and `release.yml` work
+with an empty configuration. Add a block below when you first want that target.
+
+### Modrinth — needed by `publish.yml` when the release was built with *Modrinth*
+
+| Name | Type | What goes in |
 |---|---|---|
-| `MODRINTH_ID` | `AAbbCCdd` | Modrinth upload |
-| `CURSEFORGE_ID` | `123456` | CurseForge upload |
-| `CROWDIN_PROJECT_ID` | `123456` | Crowdin sync |
-| `MAVEN_TARGET` | `github-pages` | `github-pages`, `http`, `s3` or `ssh` |
-| `MAVEN_GITHUB_REPO`, `MAVEN_GITHUB_PATH` | `MisterJulsen/mod-resources`, `maven` | `github-pages` |
-| `MAVEN_HTTP_URL` | `https://nexus.example.com/releases` | `http` |
-| `MAVEN_S3_ENDPOINT`, `MAVEN_S3_BUCKET`, `MAVEN_S3_PATH_PREFIX` | | `s3` |
-| `MAVEN_SSH_HOST`, `MAVEN_SSH_USER`, `MAVEN_SSH_PATH` | | `ssh` |
+| `MODRINTH_ID` | variable | the project id, **not** the slug: Modrinth project page → right column → `Project ID`. Example: `AaBbCcDd` |
+| `MODRINTH_TOKEN` | secret | a personal access token: modrinth.com → avatar → Settings → *PATs* → scopes **Create versions** and **Read projects**. Example: `mrp_a1b2c3…` |
 
-Deploy key for `github-pages`: `ssh-keygen -t ed25519 -f key -N ""`, public part as a
-deploy key with write access on the Maven repository, private part as
-`MAVEN_GITHUB_DEPLOY_KEY` in the mod repository.
+The project has to exist on Modrinth already; the workflow only adds versions to it.
+
+### CurseForge — needed by `publish.yml` when the release was built with *CurseForge*
+
+| Name | Type | What goes in |
+|---|---|---|
+| `CURSEFORGE_ID` | variable | the numeric project id from the project page sidebar. Example: `123456` |
+| `CURSEFORGE_TOKEN` | secret | an author API token: legacy.curseforge.com → Account → *API Tokens* → generate. Example: `$2a$10$…` |
+
+### Crowdin — needed by `crowdin.yml` (manual runs only)
+
+| Name | Type | What goes in |
+|---|---|---|
+| `CROWDIN_PROJECT_ID` | variable | numeric project id: Crowdin project → Settings → *API*. Example: `654321` |
+| `CROWDIN_TOKEN` | secret | Crowdin account settings → *API* → personal access token, with access to projects, source files and translations |
+
+The workflow stops with a clear error message if one of the two is missing.
+
+### Auto port — optional for `auto-port.yml`
+
+| Name | Type | What goes in |
+|---|---|---|
+| `AUTO_PORT_TOKEN` | secret | a personal access token with **Contents: read/write** and **Pull requests: read/write** on this repository |
+
+Only reason to set it: pull requests opened with the built in `GITHUB_TOKEN` do
+not start other workflows, so the port pull requests arrive without a build.
+Without the secret the workflow falls back to `GITHUB_TOKEN` and still works.
+
+### Maven — needed by `publish.yml` when the release was built with *Maven*
+
+`MAVEN_TARGET` (variable) picks the transport: `github-pages`, `http`, `s3` or
+`ssh`. If it is unset or misspelled the job fails with
+*"MAVEN_TARGET is not set or invalid"*. Then fill in **only** the block of the
+chosen target.
+
+**`github-pages`** — commits the artifacts into another repository
+
+| Name | Type | What goes in |
+|---|---|---|
+| `MAVEN_GITHUB_REPO` | variable | `owner/repo` of the repository that hosts the Maven files. Example: `MisterJulsen/mod-resources` |
+| `MAVEN_GITHUB_PATH` | variable | folder inside that repository; empty means `maven`. Example: `maven` |
+| `MAVEN_GITHUB_DEPLOY_KEY` | secret | the **private** key, complete file including the `-----BEGIN …-----` lines |
+
+`ssh-keygen -t ed25519 -f key -N ""` → put `key.pub` as a deploy key **with
+write access** on the Maven repository (its Settings → Deploy keys) and the
+contents of `key` into this secret in the mod repository.
+
+**`http`** — one HTTP `PUT` per file (Nexus, Reposilite, Artifactory, …)
+
+| Name | Type | What goes in |
+|---|---|---|
+| `MAVEN_HTTP_URL` | variable | base url of the repository, without trailing slash. Example: `https://nexus.example.com/repository/releases` |
+| `MAVEN_HTTP_USERNAME` | secret | user with deploy rights |
+| `MAVEN_HTTP_PASSWORD` | secret | its password or deploy token |
+
+**`s3`** — `aws s3 sync` into a bucket (AWS, R2, MinIO, …)
+
+| Name | Type | What goes in |
+|---|---|---|
+| `MAVEN_S3_ENDPOINT` | variable | endpoint url. Example: `https://s3.eu-central-1.amazonaws.com` |
+| `MAVEN_S3_BUCKET` | variable | bucket name. Example: `mrjulsen-maven` |
+| `MAVEN_S3_PATH_PREFIX` | variable | optional folder inside the bucket; empty means the bucket root. Example: `maven` |
+| `MAVEN_S3_ACCESS_KEY` | secret | access key id with write access to the bucket |
+| `MAVEN_S3_SECRET_KEY` | secret | the matching secret access key |
+
+**`ssh`** — `rsync` to a server
+
+| Name | Type | What goes in |
+|---|---|---|
+| `MAVEN_SSH_HOST` | variable | host name. Example: `maven.example.com` |
+| `MAVEN_SSH_USER` | variable | ssh user. Example: `deploy` |
+| `MAVEN_SSH_PATH` | variable | absolute target directory. Example: `/var/www/maven` |
+| `MAVEN_SSH_KEY` | secret | private ssh key whose public half sits in that user's `~/.ssh/authorized_keys` |
+
+### What to fill in for which goal
+
+| Goal | Secrets | Variables |
+|---|---|---|
+| pull request and snapshot builds | – | – |
+| GitHub releases only | – | – |
+| releases on Modrinth and CurseForge | `MODRINTH_TOKEN`, `CURSEFORGE_TOKEN` | `MODRINTH_ID`, `CURSEFORGE_ID` |
+| library, Maven on GitHub as well | `MAVEN_GITHUB_DEPLOY_KEY` | `MAVEN_TARGET=github-pages`, `MAVEN_GITHUB_REPO`, `MAVEN_GITHUB_PATH` |
+| translations as well | `CROWDIN_TOKEN` | `CROWDIN_PROJECT_ID` |
+| port pull requests that build | `AUTO_PORT_TOKEN` | – |
 
 ---
 
