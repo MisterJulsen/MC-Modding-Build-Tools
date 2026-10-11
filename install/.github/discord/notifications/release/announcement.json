@@ -18,18 +18,18 @@
     "content": "{PING}",
     "embeds": [
       {
-        "title": "{MOD_NAME}{{#if MOD_VERSION}} {MOD_VERSION}{{/if}}{{#if MC_VERSIONS}} — Minecraft {MC_VERSIONS}{{/if}}{{#if PLATFORMS}} {PLATFORMS}{{/if}}",
+        "title": "{MOD_NAME}{{#if MOD_VERSION}} {MOD_VERSION}{{/if}}{{#if MC_VERSIONS}} - Minecraft {MC_VERSIONS}{{/if}}{{#if PLATFORMS}} {PLATFORMS}{{/if}}",
         "url": "{RELEASE_URL}",
         "color": "{{#if PRERELEASE}}{COLOR_WARNING}{{else}}{COLOR_SUCCESS}{{/if}}",
-        "description": "{{#if PRERELEASE}}⚠️ **Pre-release**\n\n{{/if}}{{#if CHANGELOG}}{CHANGELOG}{{else}}_No changelog for this release._{{/if}}\n\n{CHANGELOG_LINKS}",
+        "description": "{{#if CHANGELOG}}{CHANGELOG}{{else}}_No changelog for this release._{{/if}}\n\n{CHANGELOG_LINKS}",
         "thumbnail": { "url": "{MOD_ICON_URL}" },
         "footer": { "text": "{REPO} • {TAGS}" }
       }
     ],
     "buttons": [
-      { "label": "CurseForge", "url": "{CURSEFORGE_URL}" },
-      { "label": "Modrinth", "url": "{MODRINTH_URL}" },
-      { "label": "GitHub", "url": "{RELEASE_URL}" }
+      { "label": "CurseForge", "url": "{CURSEFORGE_URL}", "emoji": "<:curseforge:1221523392696684554>" },
+      { "label": "Modrinth", "url": "{MODRINTH_URL}", "emoji": "<:modrinth:1221523414766981180>" },
+      { "label": "GitHub", "url": "{RELEASE_URL}", "emoji": "<:github:1187874357201088664>" }
     ]
   }
 }

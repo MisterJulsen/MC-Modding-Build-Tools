@@ -16,7 +16,7 @@
           "url": "{ACTOR_URL}",
           "icon_url": "{ACTOR_AVATAR}"
         },
-        "title": "🍴 New fork: {FORK_NAME}",
+        "title": "New fork: {FORK_NAME}",
         "url": "{FORK_URL}",
         "color": "{COLOR_NEUTRAL}",
         "description": "{FORK_COUNT} forks in total."

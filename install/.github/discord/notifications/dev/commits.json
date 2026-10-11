@@ -1,6 +1,6 @@
 {
   "description": "Every push to a branch that matters, one line per commit.",
-  "enabled": true,
+  "enabled": false,
   "target": "dev",
 
   "on": {

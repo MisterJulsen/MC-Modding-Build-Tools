@@ -1,6 +1,6 @@
 {
   "description": "A build or release workflow failed. Add your own workflow names to on.workflows, and remember that they also have to be listed in discord-dev.yml.",
-  "enabled": true,
+  "enabled": false,
   "target": "dev",
 
   "on": {
