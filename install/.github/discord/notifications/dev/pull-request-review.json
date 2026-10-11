@@ -1,0 +1,27 @@
+{
+  "description": "Reviews on pull requests. Off by default, it gets noisy on a busy repository.",
+  "enabled": false,
+  "target": "dev",
+
+  "on": {
+    "event": "pull_request_review",
+    "action": ["submitted"],
+    "skip_bots": true
+  },
+
+  "message": {
+    "embeds": [
+      {
+        "author": {
+          "name": "{REVIEW_AUTHOR}",
+          "url": "{REVIEW_AUTHOR_URL}",
+          "icon_url": "{REVIEW_AUTHOR_AVATAR}"
+        },
+        "title": "{REVIEW_AUTHOR} {REVIEW_VERB} #{PR_NUMBER}: {PR_TITLE}",
+        "url": "{REVIEW_URL}",
+        "color": "{{#if REVIEW_BODY}}{COLOR_INFO}{{else}}{COLOR_NEUTRAL}{{/if}}",
+        "description": "{REVIEW_BODY}"
+      }
+    ]
+  }
+}

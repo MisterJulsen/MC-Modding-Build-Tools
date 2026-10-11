@@ -1,0 +1,51 @@
+{
+  "_comment": [
+    "Everything Discord related lives in this directory. config.json holds the",
+    "parts that are shared; a single message is configured in its own file under",
+    "notifications/<group>/. Run 'python .github/discord/notify.py list' to see",
+    "what is set up, and 'notify.py check' after changing something."
+  ],
+
+  "targets": {
+    "dev": {
+      "webhook": "DISCORD_DEV_WEBHOOK"
+    },
+    "announcements": {
+      "webhook": "DISCORD_RELEASE_WEBHOOK"
+    },
+    "issue_forum": {
+      "webhook": "DISCORD_ISSUE_WEBHOOK",
+      "forum_channel": "DISCORD_ISSUE_FORUM_ID"
+    }
+  },
+
+  "groups": {
+    "dev": { "workflow": ".github/workflows/discord-dev.yml" },
+    "issues": { "workflow": ".github/workflows/discord-issues.yml" },
+    "release": { "workflow": ".github/workflows/discord-release.yml" }
+  },
+
+  "colors": {
+    "push": "#5865F2",
+    "info": "#5865F2",
+    "success": "#43B581",
+    "opened": "#43B581",
+    "merged": "#9B59B6",
+    "closed": "#ED4245",
+    "failure": "#ED4245",
+    "warning": "#FAA61A",
+    "neutral": "#747F8D"
+  },
+
+  "defaults": {
+    "username": "",
+    "avatar_url": "",
+    "footer": "{REPO}"
+  },
+
+  "forum": {
+    "labels_as_tags": true,
+    "tag_map": {},
+    "default_tags": []
+  }
+}

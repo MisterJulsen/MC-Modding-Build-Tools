@@ -1,0 +1,44 @@
+name: Discord Issue Forum
+
+on:
+  issues:
+    types: [opened, edited, closed, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: discord-issues-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  forum:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the notification files
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/discord
+          sparse-checkout-cone-mode: false
+
+      - name: Update the forum post of this issue
+        env:
+          DISCORD_ISSUE_WEBHOOK: ${{ secrets.DISCORD_ISSUE_WEBHOOK }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
+          DISCORD_ISSUE_FORUM_ID: ${{ vars.DISCORD_ISSUE_FORUM_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_VARS_JSON: ${{ toJSON(vars) }}
+        run: |
+          if [ -z "$DISCORD_ISSUE_WEBHOOK" ]; then
+            echo "DISCORD_ISSUE_WEBHOOK is not set, nothing to do."
+            exit 0
+          fi
+          if [ ! -f .github/discord/notify.py ]; then
+            echo "::error::.github/discord/notify.py is missing. Run './gradlew setupModScripts' and commit the result."
+            exit 1
+          fi
+          python3 .github/discord/notify.py run issues

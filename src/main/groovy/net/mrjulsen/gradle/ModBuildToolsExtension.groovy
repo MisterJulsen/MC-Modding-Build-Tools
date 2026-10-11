@@ -248,7 +248,10 @@ class ModBuildToolsExtension {
 
         String directory = "install"
 
-        List<String> managed = [".github/workflows/**", ".github/discord/**"]
+        // Updated on every setupModScripts run. The Discord notification files
+        // are deliberately not in here: they are installed once and then belong
+        // to the project, so an update never overwrites a customised message.
+        List<String> managed = [".github/workflows/**", ".github/discord/notify.py"]
 
         boolean overwriteAll = false
 

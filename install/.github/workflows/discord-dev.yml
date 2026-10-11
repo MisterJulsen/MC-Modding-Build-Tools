@@ -1,0 +1,52 @@
+name: Discord Dev Feed
+
+on:
+  push:
+    branches: ["**"]
+  pull_request_target:
+    types: [opened, reopened, closed, ready_for_review]
+  pull_request_review:
+    types: [submitted]
+  release:
+    types: [published]
+  watch:
+    types: [started]
+  fork:
+  workflow_run:
+    workflows:
+      - Build Test
+      - Snapshot Build
+      - Create Release
+      - Publish Release
+      - Auto Port
+      - Crowdin Sync
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the notification files
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/discord
+          sparse-checkout-cone-mode: false
+
+      - name: Post to the development channel
+        env:
+          DISCORD_DEV_WEBHOOK: ${{ secrets.DISCORD_DEV_WEBHOOK }}
+          GITHUB_VARS_JSON: ${{ toJSON(vars) }}
+        run: |
+          if [ -z "$DISCORD_DEV_WEBHOOK" ]; then
+            echo "DISCORD_DEV_WEBHOOK is not set, nothing to do."
+            exit 0
+          fi
+          if [ ! -f .github/discord/notify.py ]; then
+            echo "::error::.github/discord/notify.py is missing. Run './gradlew setupModScripts' and commit the result."
+            exit 1
+          fi
+          python3 .github/discord/notify.py run dev

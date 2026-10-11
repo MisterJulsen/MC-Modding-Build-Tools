@@ -114,8 +114,8 @@ modBuildTools {
         repository   = "MisterJulsen/MC-Modding-Build-Tools"
         ref          = "main"       // branch, tag or commit
         directory    = "install"
-        managed      = [".github/workflows/**"]   // replaced on every run
-        overwriteAll = false
+        managed      = [".github/workflows/**", ".github/discord/notify.py"]   // replaced every run
+        overwriteAll = false        // true: replace everything, not just the managed files
         prune        = false        // delete managed files that are gone upstream
     }
 }
@@ -158,8 +158,7 @@ modBuildTools {
   "changelog_categories": [
     { "inputs": ["added", "add"], "output": "Added" },
     { "inputs": ["fixed", "fix"], "output": "Fixed" }
-  ],
-  "discord": { "release": {}, "dev": {}, "issues": {} }
+  ]
 }
 ```
 
@@ -172,7 +171,9 @@ modBuildTools {
 | `auto_port.draft_on_conflict` | ports with conflicts become draft pull requests |
 | `*_title_format` | placeholders: `{MOD_ID} {MOD_NAME} {MOD_VERSION} {FULL_VERSION} {MC_VERSION} {RELEASE_CHANNEL} {PLATFORMS} {LOADER} {LOADER_NAME}` |
 | `changelog_categories` | commit prefixes and their headings |
-| `discord` | the three Discord workflows, see [Discord](#discord) |
+
+Discord is **not** configured here any more; it lives entirely in
+`.github/discord/`, see [Discord](#discord).
 
 ---
 
@@ -283,27 +284,28 @@ missing. A webhook url contains a token, so it belongs into *Secrets*.
 | `DISCORD_BOT_TOKEN` | secret | optional, see the table below |
 | `DISCORD_GUILD_ID` | variable | optional, only so the link in the issue comment points at the thread. Server icon → right click → *Copy Server ID* (needs Developer Mode) |
 | `DISCORD_ISSUE_FORUM_ID` | variable | optional, forum channel → right click → *Copy Channel ID*; lets labels pick the forum tags of the same name |
-| `DISCORD_PING_ROLE_ID` | variable | optional, the role for `{ROLE}` in `discord.release.mention` |
+| `DISCORD_PING_ROLE_ID` | variable | optional, the role behind `{ROLE}`, used by the `ping` of the announcement |
 | `CURSEFORGE_SLUG` | variable | optional, makes the CurseForge button link to the pretty url instead of `curseforge.com/projects/<id>` |
 | `MODRINTH_SLUG` | variable | optional, same for Modrinth; `MODRINTH_ID` already works on its own |
 
-Everything works with webhooks alone. `DISCORD_BOT_TOKEN` is only needed for the
-four extras:
+Everything works with webhooks alone. `DISCORD_BOT_TOKEN` is only needed for
+three extras:
 
 | Extra | Why a bot |
 |---|---|
-| closing and reopening the forum post with the issue | webhooks cannot edit a thread |
+| archiving and reopening the forum post with the issue | webhooks cannot edit a thread |
 | forum tags from issue labels by name | reading the available tags needs the api |
 | `crosspost` in an announcement channel | publishing is a bot action |
-| mirroring Discord messages back into the issue | reading messages needs a bot |
+
+Which secret a single notification needs is in
+`python .github/discord/notify.py list`.
 
 Bot setup: [Discord Developer Portal](https://discord.com/developers/applications)
 → New Application → *Bot* → *Reset Token* → copy it into the secret. Invite the
 bot to the server (*OAuth2* → URL Generator → scope `bot`) and give it
-**View Channel**, **Read Message History** and **Manage Threads** on the forum
-channel, plus **Manage Messages** in the announcement channel if you use
-`crosspost`. No privileged intents, no gateway, the workflows only use the REST
-api.
+**View Channel** and **Manage Threads** on the forum channel, plus
+**Manage Messages** in the announcement channel if you use `crosspost`. No
+privileged intents, no gateway, the workflows only use the REST api.
 
 Any repository *variable* can be used as a placeholder, so a button
 `{ "label": "Wiki", "url": "{WIKI_URL}" }` works as soon as a `WIKI_URL`
@@ -320,8 +322,8 @@ variable exists — and the button simply disappears while it does not.
 | translations as well | `CROWDIN_TOKEN` | `CROWDIN_PROJECT_ID` |
 | port pull requests that build | `AUTO_PORT_TOKEN` | – |
 | release announcements on Discord | `DISCORD_RELEASE_WEBHOOK` | – |
-| commits, pull requests, issues in a dev channel | `DISCORD_DEV_WEBHOOK` | – |
-| issues as forum posts, closed together with the issue | `DISCORD_ISSUE_WEBHOOK`, `DISCORD_BOT_TOKEN` | `DISCORD_GUILD_ID` |
+| commits, pull requests, failed builds in a dev channel | `DISCORD_DEV_WEBHOOK` | – |
+| issues as forum posts, archived together with the issue | `DISCORD_ISSUE_WEBHOOK`, `DISCORD_BOT_TOKEN` | `DISCORD_GUILD_ID`, `DISCORD_ISSUE_FORUM_ID` |
 
 ---
 
@@ -336,8 +338,8 @@ variable exists — and the button simply disappears while it does not.
 | `publish.yml` | release published | uploads to the selected targets |
 | `crowdin.yml` | manual | upload sources, download translations, optionally overwrite the translations on Crowdin |
 | `discord-release.yml` | manual | announces one or several releases in a Discord channel |
-| `discord-dev.yml` | commits, pull requests, issues, … | posts repository activity in a dev channel |
-| `discord-issues.yml` | issue events, every 15 minutes | mirrors issues into a Discord forum channel |
+| `discord-dev.yml` | commits, pull requests, workflow failures, … | posts repository activity in a dev channel |
+| `discord-issues.yml` | issue events | an issue becomes a post in a Discord forum channel |
 
 Release flow: run `release.yml` on every Minecraft version branch you want to
 ship → test the drafts, edit the changelogs → publish them → `publish.yml` uploads
@@ -353,71 +355,248 @@ One upload per loader. The version number is the jar name without `.jar`
 
 ## Discord
 
-Three workflows, each optional and each off until its webhook secret exists.
-They share one script (`.github/discord/discord_notify.py`, installed by
-`setupModScripts`) and one configuration block:
+Three optional workflows, each dead until its webhook secret exists. Everything
+they need lives in one directory, installed by `setupModScripts`:
+
+```
+.github/discord/
+  notify.py            the engine - replaced on every update, not meant to be edited
+  config.json          webhooks, colours, forum tags
+  notifications/
+    dev/       commits.json, pull-request.json, pull-request-review.json,
+               workflow-failure.json, release-published.json, star.json, fork.json
+    issues/    forum-post.json, forum-post-update.json, status-closed.json,
+               status-reopened.json, status-labeled.json
+    release/   announcement.json
+```
+
+**One file is one message.** The directory it sits in says which workflow
+carries its trigger: `dev/` → `discord-dev.yml`, `issues/` →
+`discord-issues.yml`, `release/` → `discord-release.yml`.
+
+`notify.py` is generic — it knows nothing about pushes or issues. It reads the
+event, finds the notification files whose `on` block matches, renders their
+`message` template and posts the result. `setupModScripts` replaces `notify.py`
+on every update but installs everything under `notifications/` only once, so a
+message you changed is never overwritten.
+
+### The four commands
+
+From the repository root, nothing but Python 3 needed:
+
+| Command | |
+|---|---|
+| `python .github/discord/notify.py list` | every notification: on/off, event, action, target, required secrets |
+| `notify.py check` | validates the files and reports a notification whose event is missing from its workflow's `on:` block |
+| `notify.py vars issues` | every placeholder of an event with a short description; `--payload event.json` fills in real values |
+| `notify.py render issues/forum-post` | the finished message as json, without posting it |
+
+`render` and `vars` work without a payload and then show the structure with
+empty placeholders, which is enough while writing a template. For real values,
+save an event payload from a workflow run (`${{ toJSON(github.event) }}`) or
+grab one from GitHub's
+[webhook payload examples](https://docs.github.com/en/webhooks/webhook-events-and-payloads)
+and pass it with `--payload`.
+
+### Recipes
+
+**I want notifications for commits.** Already there:
+`notifications/dev/commits.json`. `on.branches` picks the branches,
+`limits.COMMITS` how many commits one message lists.
+
+**I want to switch something off.** `"enabled": false` in its file, or delete
+the file. `enabled: false` keeps it around as documentation.
+
+**I want a new notification.** Copy the file that comes closest, change `on`
+and `message`, run `notify.py check`. Names it an event its workflow does not
+trigger yet, `check` says which line to add under `on:`.
+
+**I want to change the release message.** `notifications/release/announcement.json`,
+the `message` block. `notify.py render release/announcement` shows the result.
+
+**I want different colours everywhere.** `config.json` → `colors`. Every
+shipped template uses `{COLOR_SUCCESS}` and friends, so one edit covers all
+messages.
+
+**I want an extra button.** Add `{ "label": "Wiki", "url": "{WIKI_URL}" }` to
+`message.buttons`. A button whose url does not resolve is dropped, so it
+appears the moment a `WIKI_URL` repository variable exists.
+
+### Anatomy of a notification file
 
 ```json
-"discord": {
-  "release": {
-    "enabled": true,
-    "title_format": "{MOD_NAME} {MOD_VERSION} - Minecraft {MC_VERSIONS} {PLATFORMS}",
-    "changelog_limit": 0,
-    "color": "#43B581",
-    "prerelease_color": "#FAA61A",
-    "mention": "",
-    "thumbnail": "",
-    "footer": "",
-    "crosspost": false,
-    "buttons": [
-      { "label": "CurseForge", "url": "{CURSEFORGE_URL}" },
-      { "label": "Modrinth", "url": "{MODRINTH_URL}" },
-      { "label": "GitHub", "url": "{RELEASE_URL}" }
-    ]
+{
+  "description": "Every push to a branch that matters, one line per commit.",
+  "enabled": true,
+  "target": "dev",
+
+  "on": {
+    "event": "push",
+    "branches": ["main", "mc/*"],
+    "skip_bots": true,
+    "require": ["COMMITS"]
   },
-  "dev": { "enabled": true, "events": { "push": true, "pull_request": true } },
-  "issues": { "enabled": true, "mirror_github_comments": true }
+
+  "limits": { "COMMITS": 10 },
+
+  "message": {
+    "embeds": [{
+      "title": "{COMMITS_TOTAL} new commit{COMMITS_PLURAL} in {BRANCH}",
+      "url": "{COMPARE_URL}",
+      "color": "{COLOR_PUSH}",
+      "description": "{{#each COMMITS}}[`{SHORT_SHA}`]({URL}) {SUBJECT}\n{{/each}}"
+    }]
+  }
 }
 ```
+
+| Key | Meaning |
+|---|---|
+| `description` | for you, never sent anywhere |
+| `enabled` | `false` switches the message off without deleting it |
+| `target` | a key of `config.json` → `targets`, which maps it onto a webhook secret |
+| `on` | the filters; all of them have to match |
+| `limits` | per placeholder: entries for a list, characters for text. Text is cut on line boundaries |
+| `message` | a Discord message, see below |
+| `ping` | the only thing in the whole message that may mention anyone |
+| `crosspost` | press *Publish* in an announcement channel; needs `DISCORD_BOT_TOKEN` |
+| `thread` | forum posts only, see [Issue forum](#issue-forum--discord-issuesyml) |
+
+`"message": "other-file"` instead of a block reuses that notification's
+message. `forum-post-update.json` does exactly that, so the look of an issue
+post is defined in one place only.
+
+### `on` — when a message is sent
+
+| Filter | Meaning |
+|---|---|
+| `event` | GitHub event name, or a list of them. `pull_request` also covers `pull_request_target` |
+| `action` | `["opened", "closed"]`, or `"*"` for any. Omitted means any |
+| `branches` | globs, matched against the push branch, the `workflow_run` branch or a pull request's target branch |
+| `labels` | globs; at least one label of the issue or pull request has to match |
+| `workflows` | globs on the workflow name, for `workflow_run` |
+| `conclusions` | `["failure", "timed_out"]`, for `workflow_run` |
+| `skip_bots` | default `true`: ignore anything a bot account triggered |
+| `skip_drafts` | ignore draft pull requests |
+| `merged` | `true` only for merged pull requests, `false` only for closed ones |
+| `require` | placeholders that must not be empty, for example `["COMMITS"]` |
+
+Whatever stopped a message is in the log of the run, one line per notification:
+
+```
+dev: 7 notification(s), event 'push'
+  commits: skipped - branch 'l10n/crowdin' is not in ['main', 'mc/*']
+  fork: skipped - enabled is false
+  pull-request: skipped - event is 'push', the rule wants pull_request
+```
+
+### `message` — what is sent
+
+The block is a Discord message as the api wants it, so everything Discord can do
+is available: `content`, `embeds` with `title`, `description`, `url`, `color`,
+`author`, `footer`, `fields`, `thumbnail`, `image`, `timestamp`, and `buttons`
+as a shortcut for link components (max 25, five per row, `label`, `url`,
+optional `emoji` as `🔥` or `name:id`). Three things happen on their own:
+
+* Everything that renders empty is removed — an empty field, an embed without a
+  title, an image without a url.
+* Discord's length limits are applied, so a 40 kB issue body cannot break a
+  message.
+* `color` takes `"#43B581"` as well as `{COLOR_SUCCESS}` from `config.json`.
+
+Template syntax, usable in every string of the block:
+
+| | |
+|---|---|
+| `{NAME}` | a placeholder; an unknown name is simply empty |
+| `{{#each LIST}}…{{/each}}` | once per entry, the entry's own fields become placeholders inside |
+| `{{#if NAME}}…{{else}}…{{/if}}` | empty, `false` and `0` count as false |
+| `{{#unless NAME}}…{{/unless}}` | the other way round |
+
+Blocks nest, which is how `announcement.json` picks its colour:
+
+```json
+"color": "{{#if PRERELEASE}}{COLOR_WARNING}{{else}}{COLOR_SUCCESS}{{/if}}"
+```
+
+A list placeholder such as `COMMITS` also provides `{COMMITS_TOTAL}` (what the
+event delivered), `{COMMITS_COUNT}` (what the message shows),
+`{COMMITS_HIDDEN}` (the difference, empty when nothing was cut) and
+`{COMMITS_PLURAL}` (`s` or nothing). Inside `{{#each}}` there are `{INDEX}`,
+`{FIRST}` and `{LAST}`. The current action is a placeholder too —
+`{ACTION_CLOSED}`, `{ACTION_LABELED}`, … — so `{{#if}}` can branch on it
+without needing a comparison operator.
+
+`notify.py vars <event>` prints every placeholder an event has; the table below
+only names the ones worth remembering.
+
+| | |
+|---|---|
+| repository | `{REPO}` `{REPO_NAME}` `{REPO_OWNER}` `{REPO_URL}` `{ISSUES_URL}` `{DEFAULT_BRANCH}` |
+| who | `{ACTOR}` `{ACTOR_URL}` `{ACTOR_AVATAR}` |
+| push | `{BRANCH}` `{COMPARE_URL}` `{COMMITS}` with `{SHORT_SHA}` `{URL}` `{SUBJECT}` `{AUTHOR}` |
+| pull request | `{PR_NUMBER}` `{PR_TITLE}` `{PR_URL}` `{PR_BODY}` `{PR_VERB}` `{PR_HEAD}` `{PR_BASE}` `{PR_ADDITIONS}` `{PR_MERGED}` `{PR_LABEL_NAMES}` |
+| issue | `{ISSUE_NUMBER}` `{ISSUE_TITLE}` `{ISSUE_URL}` `{ISSUE_BODY}` `{ISSUE_AUTHOR}` `{ISSUE_STATE_REASON}` `{ISSUE_LABEL_NAMES}` `{ISSUE_MILESTONE}` `{LABEL}` |
+| workflow run | `{RUN_NAME}` `{RUN_URL}` `{RUN_CONCLUSION}` `{RUN_BRANCH}` `{RUN_ATTEMPT}` |
+| announcement | `{MOD_NAME}` `{MOD_VERSION}` `{MC_VERSION}` `{MC_VERSIONS}` `{PLATFORMS}` `{LOADERS}` `{TAG}` `{TAGS}` `{RELEASE_URL}` `{CHANGELOG}` `{CHANGELOG_LINKS}` `{PRERELEASE}` `{RELEASES}` |
+| store pages | `{CURSEFORGE_URL}` `{MODRINTH_URL}`, built from the ids or slugs you already set |
+| anything else | every repository **variable** by its own name in upper case, plus `{ROLE}`, `{PING}` and `{COLOR_*}` |
+
+### config.json
+
+The shared half: which secret belongs to which channel, the colour palette, the
+forum settings. Nothing in here describes a message.
+
+```json
+{
+  "targets": {
+    "dev": { "webhook": "DISCORD_DEV_WEBHOOK" },
+    "announcements": { "webhook": "DISCORD_RELEASE_WEBHOOK" },
+    "issue_forum": {
+      "webhook": "DISCORD_ISSUE_WEBHOOK",
+      "forum_channel": "DISCORD_ISSUE_FORUM_ID"
+    }
+  },
+  "groups": { "dev": { "workflow": ".github/workflows/discord-dev.yml" } },
+  "colors": { "success": "#43B581", "failure": "#ED4245" },
+  "defaults": { "username": "", "avatar_url": "", "footer": "{REPO}" },
+  "forum": { "labels_as_tags": true, "tag_map": {}, "default_tags": [] }
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `targets` | name → the **name of the environment variable** that holds the webhook. The url itself stays in *Secrets* |
+| `groups` | which workflow carries a directory's triggers; only `notify.py check` uses this |
+| `colors` | the palette behind `{COLOR_<NAME>}`, add your own names freely |
+| `defaults.footer` | footer for every embed that does not bring its own |
+| `defaults.username` | overrides the webhook's name, for example `{MOD_NAME}` |
+| `forum` | see [Issue forum](#issue-forum--discord-issuesyml) |
 
 ### Release announcement — `discord-release.yml`
 
 Manual, and that is the point: publish your drafts first — one per Minecraft
 version — then start this workflow **once** and get a single message, whether it
-covers one version or four.
+covers one version or four. The message is
+`notifications/release/announcement.json`.
 
 | Input | |
 |---|---|
 | `tags` | empty = the newest published release. Otherwise a list of tags, space or comma separated, globs allowed: `v3.1.0+mc*` catches every Minecraft version of 3.1.0, `v3.1.0+mc1.20.1 v3.1.0+mc1.21.1` names them explicitly. Drafts are never matched |
-| `ping` | on by default and means "use `discord.release.mention`". Switch it off for a hotfix that should not wake anyone. It can only suppress a ping, never create one |
-| `dry_run` | posts nothing, writes the whole message, the matched releases and all warnings into the run summary |
+| `ping` | on by default and means "use the `ping` value of the notification". Switch it off for a hotfix that should not wake anyone. It can only suppress a ping, never create one |
+| `dry_run` | posts nothing and writes the whole message into the run summary |
 
 Nothing is ever grouped on its own: an empty `tags` announces exactly one
 release. If you ship 3.1.0 for 1.20.1 today and 3.1.0 for 1.21.1 in two weeks,
 the second run with the exact tag leaves the first release alone.
 
-| Key | Meaning |
-|---|---|
-| `title_format` | placeholders below; default `DragonLib 3.1.0 - Minecraft 1.20.1, 1.21.1 [FABRIC/FORGE]` |
-| `changelog_limit` | `0` means "as much as fits into the embed". A positive number makes it shorter |
-| `color`, `prerelease_color` | hex color of the embed stripe |
-| `mention` | text above the embed, for example `@everyone`, `<@&123>` or `{ROLE}` for the `DISCORD_PING_ROLE_ID` variable. Only what is written here may be pinged |
-| `thumbnail`, `image` | image urls, placeholders allowed |
-| `footer` | small line under the body, for example `Minecraft {MC_VERSIONS} • {LOADERS}` |
-| `crosspost` | press *Publish* in an announcement channel; needs `DISCORD_BOT_TOKEN` |
-| `buttons` | `label`, `url`, optional `emoji` (`🔥` or `name:id`) and `enabled: false`. Max 25, five per row, a button with an unresolved url is dropped. The GitHub button points at the newest of the announced releases |
+Mod name, version and loaders come from the `metadata.json` of each build. Has
+its artifact expired, the workflow says so and falls back to the Minecraft
+version in the tag.
 
-Placeholders in `title_format`, `mention`, `footer`, image urls and button urls:
-
-| | |
-|---|---|
-| mod | `{MOD_ID}` `{MOD_NAME}` `{MOD_VERSION}` `{FULL_VERSION}` `{RELEASE_CHANNEL}` `{JAVA_VERSION}` |
-| Minecraft | `{MC_VERSIONS}` → `1.20.1, 1.21.1` (version sorted), `{MC_VERSION}` → only the newest one |
-| loaders | `{PLATFORMS}` → `[FABRIC/FORGE]`, `{LOADERS}` → `Fabric, Forge`; both are the union over all announced releases |
-| release | `{TAG}` `{RELEASE_NAME}` `{RELEASE_URL}` of the newest, `{TAGS}` for all of them |
-| repository | `{REPO}` `{REPO_NAME}` `{REPO_OWNER}` `{REPO_URL}` `{ISSUES_URL}` |
-| platforms | `{CURSEFORGE_URL}` `{MODRINTH_URL}` (from the ids or slugs you already set) |
-| anything else | every repository **variable** by its own name, plus `{ROLE}` |
+The changelog arrives as `{CHANGELOG}`, trimmed to `limits.CHANGELOG`
+characters on line boundaries; `{CHANGELOG_LINKS}` is *Full changelog on
+GitHub*, or one link per Minecraft version when several releases are announced.
 
 #### How several changelogs become one
 
@@ -443,99 +622,87 @@ marker, so indentation and nesting survive. Two lines that differ by one word
 count as two different lines and both get a prefix; the dry run shows that
 immediately.
 
-Whole lines only: the first line that no longer fits into the embed ends the
-block with `…`, so nothing is silently dropped out of the middle. A single line
-that is too long on its own gets cut. Under the changelog sits
-*Full changelog on GitHub*, or one link per Minecraft version when several
-releases are announced.
-
-Mod name, version and loaders come from the `metadata.json` of each build. If
-its artifact has expired, the workflow says so and falls back to the Minecraft
-version in the tag.
-
 ### Development feed — `discord-dev.yml`
 
-One embed per event in a second channel, each event type switchable on its own:
+One embed per event in a development channel. Seven files in
+`notifications/dev/`, three of them off by default:
 
-```json
-"dev": {
-  "enabled": true,
-  "events": {
-    "push": true, "pull_request": true, "pull_request_review": false,
-    "issues": true, "issue_comment": false, "discussion": false,
-    "release": true, "workflow_failure": true, "star": false, "fork": false
-  },
-  "branches": ["main", "mc/*"],
-  "max_commits": 10,
-  "skip_bots": true,
-  "skip_merge_commits": false,
-  "colors": { "push": "#5865F2" }
-}
-```
+| File | | |
+|---|---|---|
+| `commits.json` | on | one line per commit, linked to the compare view |
+| `pull-request.json` | on | opened, reopened, ready for review, merged, closed |
+| `release-published.json` | on | a GitHub release went public |
+| `workflow-failure.json` | on | a failed run of the workflows named in `on.workflows` |
+| `pull-request-review.json` | off | approvals and change requests |
+| `star.json` | off | someone starred the repository |
+| `fork.json` | off | someone forked it |
 
-| Key | Meaning |
-|---|---|
-| `events.push` | new commits as a list of `sha` – message – author, linked to the compare view |
-| `events.pull_request` | opened, reopened, ready for review, merged, closed |
-| `events.issues` / `issue_comment` | issues opened, closed, reopened / new comments |
-| `events.workflow_failure` | a failed run of the workflows listed in `discord-dev.yml` |
-| `branches` | glob patterns; empty means every branch. Only applies to `push` |
-| `max_commits` | commits per message, the rest becomes *and N more* |
-| `skip_bots` | ignores everything triggered by a bot account |
-| `colors` | per kind: `push`, `opened`, `merged`, `closed`, `comment`, `release`, `failure`, `misc` |
+Issues are missing from this list on purpose: they go into the forum instead.
+Do you want them here as well, copy `pull-request.json`, set `on.event` to
+`issues` and add an `issues:` trigger to `discord-dev.yml` — `notify.py check`
+reminds you of the second half.
+
+`workflow-failure.json` filters on workflow names in `on.workflows`, and GitHub
+needs the same names in the `workflow_run.workflows` list of
+`discord-dev.yml`. Two places, both commented; a name only present in one of
+them means no message.
 
 ### Issue forum — `discord-issues.yml`
 
-A new issue becomes a post in a Discord **forum** channel, and the issue gets one
-comment with the link to it. That comment also stores the thread id, so no
-database is needed anywhere.
+A new issue becomes a post in a Discord **forum** channel, and the issue gets a
+single comment carrying the link to it. That comment also stores the thread id,
+so no database is needed anywhere.
 
-```json
-"issues": {
-  "enabled": true,
-  "thread_title_format": "#{NUMBER} {TITLE}",
-  "body_limit": 1800,
-  "labels_as_tags": true,
-  "tag_map": { "bug": "1234567890" },
-  "default_tags": [],
-  "mirror_github_comments": true,
-  "mirror_discord_messages": false,
-  "mirror_edits": true,
-  "close_thread_on_close": true,
-  "lock_thread_on_close": false
-}
-```
+What this deliberately does **not** do is mirror comments, in either direction.
+A bot that syncs every few minutes suggests a cross platform chat that does not
+exist, and GitHub is not a chat in the first place. The forum post is the
+documentation of the issue; what happens below it on Discord and what happens
+on GitHub are two separate conversations.
+
+Five files, one per thing that can happen to an issue:
+
+| File | |
+|---|---|
+| `forum-post.json` | the issue was opened → create the thread. Defines the look of an issue post |
+| `forum-post-update.json` | the issue text was edited → rewrite the first post, nothing new is sent |
+| `status-closed.json` | *closed on GitHub* into the thread, then archive it |
+| `status-reopened.json` | unarchive the thread and say why it is back |
+| `status-labeled.json` | a label was added or removed |
+
+The `thread` block of such a file:
 
 | Key | Meaning |
 |---|---|
-| `thread_title_format` | `{NUMBER}`, `{TITLE}` and the repository placeholders; 100 characters max |
-| `labels_as_tags` | labels pick the forum tags with the same name; needs `DISCORD_ISSUE_FORUM_ID` and `DISCORD_BOT_TOKEN` |
-| `tag_map` | label → forum tag id, for when you do not want to use a bot (tag id: forum channel → Edit Channel → Tags, or ask the api) |
+| `action` | `create`, `reply` (the default) or `edit` for the first post |
+| `name` | thread title, `create` only, 100 characters max |
+| `tags_from_labels` | `create` only: labels pick the forum tags of the same name |
+| `archived` | `true` archives after the message, `false` reopens the thread before it |
+| `locked` | `true` so nobody can answer in a closed report |
+
+`archived` and `locked` need `DISCORD_BOT_TOKEN`; without it the message is
+posted and the thread is left as it is. The matching settings in `config.json`:
+
+| `forum` key | Meaning |
+|---|---|
+| `labels_as_tags` | match labels against the forum's tag names; needs `DISCORD_ISSUE_FORUM_ID` and `DISCORD_BOT_TOKEN` |
+| `tag_map` | label → tag id, for when you do not want a bot (tag id: forum channel → Edit Channel → Tags, or ask the api) |
 | `default_tags` | tag ids for issues whose labels match nothing, for forums that require a tag |
-| `mirror_github_comments` | comments on the issue are posted into the thread |
-| `mirror_discord_messages` | and the other way round, every 15 minutes, **needs** `DISCORD_BOT_TOKEN` |
-| `mirror_edits` | an edited issue text updates the first post |
-| `close_thread_on_close` | closing the issue archives the thread; needs `DISCORD_BOT_TOKEN` |
-| `lock_thread_on_close` | and locks it, so nobody writes into a closed report |
 
-Without a bot token the thread only receives a *this issue was closed* message
-and stays open. Mirrored messages never trigger each other: the script skips
-webhook and bot authors on the Discord side and its own hidden marker on the
-GitHub side.
-
-The `*/15` schedule in `discord-issues.yml` only exists for
-`mirror_discord_messages`. If you leave that off, delete the `schedule:` block —
-the run does nothing but still shows up in the Actions tab.
+Pull requests get no forum post; they appear in the dev feed.
 
 ### Good to know
 
+* Only the `ping` value of a notification may mention anyone. Everything that
+  came out of the event — commit messages, issue bodies, labels — is posted with
+  mentions switched off, whatever it contains.
 * Link buttons work through plain webhooks. Should Discord refuse them anyway,
-  the script posts the same links as a *Links* field instead and says so in the
+  the engine posts the same links as a *Links* field instead and says so in the
   log.
-* Pull requests from forks are reported through `pull_request_target`, which
-  only ever reads the event, never checks out or runs the fork's code.
-* Nothing in a mirrored text can ping anyone; only `discord.release.mention`
-  may.
+* Pull requests from forks arrive through `pull_request_target`, which only ever
+  reads the event and checks out the base branch, never the fork's code.
+* A notification file belongs to your project. `setupModScripts` installs it
+  once and afterwards only updates `notify.py`. Want the shipped version back,
+  delete your file and run the task again.
 
 ---
 

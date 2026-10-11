@@ -1,7 +1,5 @@
 name: Announce Release on Discord
 
-# Manual on purpose: publish the drafts first, then announce once - for a single
-# Minecraft version or for several of them in one combined message.
 on:
   workflow_dispatch:
     inputs:
@@ -11,7 +9,7 @@ on:
         required: false
         default: ""
       ping:
-        description: "Ping (uses discord.release.mention)"
+        description: "Ping (uses the 'ping' value of announcement.json)"
         type: boolean
         required: false
         default: true
@@ -34,12 +32,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout configuration and script
+      - name: Checkout the notification files
         uses: actions/checkout@v4
         with:
-          sparse-checkout: |
-            build_tools.config
-            .github/discord
+          sparse-checkout: .github/discord
           sparse-checkout-cone-mode: false
 
       - name: Select the releases
@@ -93,8 +89,6 @@ jobs:
           printf '  %s\n' "${UNIQUE[@]}"
           printf '%s\n' "${UNIQUE[@]}" > selected-tags.txt
 
-      # One entry per release: the release itself plus the metadata.json of its
-      # build, which carries mod name, version and loaders.
       - name: Collect the release data
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -143,8 +137,8 @@ jobs:
             echo "::error::DISCORD_RELEASE_WEBHOOK is not set."
             exit 1
           fi
-          if [ ! -f .github/discord/discord_notify.py ]; then
-            echo "::error::.github/discord/discord_notify.py is missing. Run './gradlew setupModScripts' and commit the result."
+          if [ ! -f .github/discord/notify.py ]; then
+            echo "::error::.github/discord/notify.py is missing. Run './gradlew setupModScripts' and commit the result."
             exit 1
           fi
-          python3 .github/discord/discord_notify.py release
+          python3 .github/discord/notify.py run release --event release_announcement --summary

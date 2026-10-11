@@ -1,0 +1,32 @@
+{
+  "description": "Every push to a branch that matters, one line per commit.",
+  "enabled": true,
+  "target": "dev",
+
+  "on": {
+    "event": "push",
+    "branches": ["main", "master", "dev", "mc/*"],
+    "skip_bots": true,
+    "require": ["COMMITS"]
+  },
+
+  "limits": {
+    "COMMITS": 10
+  },
+
+  "message": {
+    "embeds": [
+      {
+        "author": {
+          "name": "{ACTOR}",
+          "url": "{ACTOR_URL}",
+          "icon_url": "{ACTOR_AVATAR}"
+        },
+        "title": "{COMMITS_TOTAL} new commit{COMMITS_PLURAL} in {BRANCH}",
+        "url": "{COMPARE_URL}",
+        "color": "{COLOR_PUSH}",
+        "description": "{{#each COMMITS}}[`{SHORT_SHA}`]({URL}) {SUBJECT}{{#if AUTHOR}} — {AUTHOR}{{/if}}\n{{/each}}{{#if COMMITS_HIDDEN}}\n… and {COMMITS_HIDDEN} more{{/if}}"
+      }
+    ]
+  }
+}

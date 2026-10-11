@@ -1,0 +1,17 @@
+{
+  "description": "The issue text was edited on GitHub, so the first post of its forum thread is rewritten. Keeping the documentation correct, not chatting - it posts nothing new.",
+  "enabled": true,
+  "target": "issue_forum",
+
+  "on": {
+    "event": "issues",
+    "action": ["edited"],
+    "skip_bots": true
+  },
+
+  "thread": {
+    "action": "edit"
+  },
+
+  "message": "forum-post"
+}

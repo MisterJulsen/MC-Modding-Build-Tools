@@ -1,0 +1,32 @@
+{
+  "description": "A GitHub release went public. This is the internal note in the dev channel - the real announcement is notifications/release/announcement.json.",
+  "enabled": true,
+  "target": "dev",
+
+  "on": {
+    "event": "release",
+    "action": ["published"],
+    "skip_bots": false
+  },
+
+  "limits": {
+    "RELEASE_BODY": 1200
+  },
+
+  "message": {
+    "embeds": [
+      {
+        "author": {
+          "name": "{ACTOR}",
+          "url": "{ACTOR_URL}",
+          "icon_url": "{ACTOR_AVATAR}"
+        },
+        "title": "Release published: {RELEASE_NAME}",
+        "url": "{RELEASE_URL}",
+        "color": "{{#if RELEASE_PRERELEASE}}{COLOR_WARNING}{{else}}{COLOR_SUCCESS}{{/if}}",
+        "description": "{RELEASE_BODY}",
+        "footer": { "text": "{REPO} • {RELEASE_TAG}{{#if RELEASE_PRERELEASE}} • pre-release{{/if}}" }
+      }
+    ]
+  }
+}

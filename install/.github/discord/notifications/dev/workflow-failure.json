@@ -1,0 +1,35 @@
+{
+  "description": "A build or release workflow failed. Add your own workflow names to on.workflows, and remember that they also have to be listed in discord-dev.yml.",
+  "enabled": true,
+  "target": "dev",
+
+  "on": {
+    "event": "workflow_run",
+    "action": ["completed"],
+    "conclusions": ["failure", "timed_out"],
+    "workflows": [
+      "Build Test",
+      "Snapshot Build",
+      "Create Release",
+      "Publish Release",
+      "Auto Port",
+      "Crowdin Sync"
+    ],
+    "skip_bots": false
+  },
+
+  "message": {
+    "embeds": [
+      {
+        "title": "{RUN_NAME} failed",
+        "url": "{RUN_URL}",
+        "color": "{COLOR_FAILURE}",
+        "description": "Branch `{RUN_BRANCH}` at `{RUN_COMMIT}`, run #{RUN_NUMBER} (attempt {RUN_ATTEMPT}), triggered by `{RUN_EVENT}`.",
+        "footer": { "text": "{REPO} • {RUN_CONCLUSION}" }
+      }
+    ],
+    "buttons": [
+      { "label": "Open the run", "url": "{RUN_URL}" }
+    ]
+  }
+}

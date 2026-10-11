@@ -1,0 +1,30 @@
+{
+  "description": "Pull requests that open, reopen, close, merge or become ready for review.",
+  "enabled": true,
+  "target": "dev",
+
+  "on": {
+    "event": "pull_request",
+    "action": ["opened", "reopened", "closed", "ready_for_review"],
+    "skip_bots": true
+  },
+
+  "message": {
+    "embeds": [
+      {
+        "author": {
+          "name": "{ACTOR}",
+          "url": "{ACTOR_URL}",
+          "icon_url": "{ACTOR_AVATAR}"
+        },
+        "title": "Pull request #{PR_NUMBER} {PR_VERB}: {PR_TITLE}",
+        "url": "{PR_URL}",
+        "color": "{{#if PR_MERGED}}{COLOR_MERGED}{{else}}{{#if ACTION_CLOSED}}{COLOR_CLOSED}{{else}}{COLOR_OPENED}{{/if}}{{/if}}",
+        "description": "{PR_BODY}",
+        "footer": {
+          "text": "{REPO} • {PR_HEAD} → {PR_BASE}{{#if PR_ADDITIONS}} • +{PR_ADDITIONS} / -{PR_DELETIONS}{{/if}}{{#if PR_LABEL_NAMES}} • {PR_LABEL_NAMES}{{/if}}"
+        }
+      }
+    ]
+  }
+}

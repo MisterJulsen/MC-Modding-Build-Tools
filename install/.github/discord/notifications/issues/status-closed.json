@@ -1,0 +1,20 @@
+{
+  "description": "Notes in the forum thread that the issue was closed and archives the thread. Set thread.locked to true as well if nobody should be able to answer afterwards.",
+  "enabled": true,
+  "target": "issue_forum",
+
+  "on": {
+    "event": "issues",
+    "action": ["closed"],
+    "skip_bots": false
+  },
+
+  "thread": {
+    "action": "reply",
+    "archived": true
+  },
+
+  "message": {
+    "content": "🔒 Closed on GitHub by **{ACTOR}**{{#if ISSUE_STATE_REASON}} as *{ISSUE_STATE_REASON}*{{/if}}.\n<{ISSUE_URL}>"
+  }
+}

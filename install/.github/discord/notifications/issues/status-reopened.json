@@ -1,0 +1,21 @@
+{
+  "description": "Reopens the archived forum thread and says why it is back.",
+  "enabled": true,
+  "target": "issue_forum",
+
+  "on": {
+    "event": "issues",
+    "action": ["reopened"],
+    "skip_bots": false
+  },
+
+  "thread": {
+    "action": "reply",
+    "archived": false,
+    "locked": false
+  },
+
+  "message": {
+    "content": "🔓 Reopened on GitHub by **{ACTOR}**.\n<{ISSUE_URL}>"
+  }
+}

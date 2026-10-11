@@ -1,0 +1,35 @@
+{
+  "description": "The release announcement. Posted by hand through discord-release.yml, for one Minecraft version or for several of them in a single message.",
+  "enabled": true,
+  "target": "announcements",
+
+  "on": {
+    "event": "release_announcement"
+  },
+
+  "ping": "{ROLE}",
+  "crosspost": false,
+
+  "limits": {
+    "CHANGELOG": 3400
+  },
+
+  "message": {
+    "content": "{PING}",
+    "embeds": [
+      {
+        "title": "{MOD_NAME} {MOD_VERSION} — Minecraft {MC_VERSIONS} {PLATFORMS}",
+        "url": "{RELEASE_URL}",
+        "color": "{{#if PRERELEASE}}{COLOR_WARNING}{{else}}{COLOR_SUCCESS}{{/if}}",
+        "description": "{{#if PRERELEASE}}⚠️ **Pre-release**\n\n{{/if}}{{#if CHANGELOG}}{CHANGELOG}{{else}}_No changelog for this release._{{/if}}\n\n{CHANGELOG_LINKS}",
+        "thumbnail": { "url": "{MOD_ICON_URL}" },
+        "footer": { "text": "{REPO} • {TAGS}" }
+      }
+    ],
+    "buttons": [
+      { "label": "CurseForge", "url": "{CURSEFORGE_URL}" },
+      { "label": "Modrinth", "url": "{MODRINTH_URL}" },
+      { "label": "GitHub", "url": "{RELEASE_URL}" }
+    ]
+  }
+}

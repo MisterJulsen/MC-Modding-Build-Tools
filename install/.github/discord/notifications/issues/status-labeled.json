@@ -1,0 +1,19 @@
+{
+  "description": "A label was added or removed. Delete this file if label changes should stay invisible on Discord.",
+  "enabled": true,
+  "target": "issue_forum",
+
+  "on": {
+    "event": "issues",
+    "action": ["labeled", "unlabeled"],
+    "skip_bots": true
+  },
+
+  "thread": {
+    "action": "reply"
+  },
+
+  "message": {
+    "content": "🏷️ Label **{LABEL}** was {{#if ACTION_LABELED}}added{{else}}removed{{/if}} by **{ACTOR}**. Now: {{#if ISSUE_LABEL_NAMES}}{ISSUE_LABEL_NAMES}{{else}}no labels{{/if}}."
+  }
+}

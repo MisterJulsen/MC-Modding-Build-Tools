@@ -1,0 +1,49 @@
+{
+  "description": "A new issue becomes a post in the Discord issue forum. This is the one place where the look of an issue post is defined - forum-post-update.json reuses this message.",
+  "enabled": true,
+  "target": "issue_forum",
+
+  "on": {
+    "event": "issues",
+    "action": ["opened"],
+    "skip_bots": true
+  },
+
+  "thread": {
+    "action": "create",
+    "name": "#{ISSUE_NUMBER} {ISSUE_TITLE}",
+    "tags_from_labels": true
+  },
+
+  "message": {
+    "embeds": [
+      {
+        "author": {
+          "name": "{ISSUE_AUTHOR}",
+          "url": "{ISSUE_AUTHOR_URL}",
+          "icon_url": "{ISSUE_AUTHOR_AVATAR}"
+        },
+        "title": "{ISSUE_TITLE}",
+        "url": "{ISSUE_URL}",
+        "color": "{{#if ACTION_CLOSED}}{COLOR_CLOSED}{{else}}{COLOR_OPENED}{{/if}}",
+        "description": "{{#if ISSUE_BODY}}{ISSUE_BODY}{{else}}_This issue has no description._{{/if}}",
+        "fields": [
+          {
+            "name": "Labels",
+            "value": "{ISSUE_LABEL_NAMES}",
+            "inline": true
+          },
+          {
+            "name": "Milestone",
+            "value": "{ISSUE_MILESTONE}",
+            "inline": true
+          }
+        ],
+        "footer": { "text": "{REPO} • #{ISSUE_NUMBER}" }
+      }
+    ],
+    "buttons": [
+      { "label": "Open on GitHub", "url": "{ISSUE_URL}" }
+    ]
+  }
+}
