@@ -590,9 +590,14 @@ Nothing is ever grouped on its own: an empty `tags` announces exactly one
 release. If you ship 3.1.0 for 1.20.1 today and 3.1.0 for 1.21.1 in two weeks,
 the second run with the exact tag leaves the first release alone.
 
-Mod name, version and loaders come from the `metadata.json` of each build. Has
-its artifact expired, the workflow says so and falls back to the Minecraft
-version in the tag.
+Mod name, version and loaders come from the `metadata.json` of each build,
+which the workflow pulls from the `internal-<tag>` artifact of the release
+build. GitHub deletes that artifact after 90 days, so for an older release it
+is gone. The run then prints a warning and the announcement falls back to what
+the tag itself carries: `v3.1.0+mc1.20.1` still yields version `3.1.0` and
+Minecraft `1.20.1`, the mod name comes from the `MOD_NAME` repository variable
+or the repository name, and only the loader list stays empty — the title drops
+the `[FORGE/FABRIC]` part instead of leaving a gap.
 
 The changelog arrives as `{CHANGELOG}`, trimmed to `limits.CHANGELOG`
 characters on line boundaries; `{CHANGELOG_LINKS}` is *Full changelog on

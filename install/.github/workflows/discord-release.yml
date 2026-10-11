@@ -101,8 +101,12 @@ jobs:
               --json name,body,url,tagName,isPrerelease,publishedAt > release-view.json
 
             META=null
-            RUN_ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=20&name=internal-${TAG}" \
-              --jq '[.artifacts[] | select(.expired == false)][0].workflow_run.id' 2>/dev/null || true)
+            # Matched with jq and not with the API's own name= filter: a tag
+            # like v3.1.0+mc1.20.1 contains a '+', which a query string reads
+            # as a space, so the filter never matches a build tools tag.
+            RUN_ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --paginate \
+              --jq ".artifacts[] | select(.name == \"internal-${TAG}\") | select(.expired == false) | .workflow_run.id" \
+              2>/dev/null | head -n1 || true)
 
             if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
               rm -rf build-data && mkdir -p build-data

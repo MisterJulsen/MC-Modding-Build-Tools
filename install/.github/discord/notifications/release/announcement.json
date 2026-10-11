@@ -18,7 +18,7 @@
     "content": "{PING}",
     "embeds": [
       {
-        "title": "{MOD_NAME} {MOD_VERSION} — Minecraft {MC_VERSIONS} {PLATFORMS}",
+        "title": "{MOD_NAME}{{#if MOD_VERSION}} {MOD_VERSION}{{/if}}{{#if MC_VERSIONS}} — Minecraft {MC_VERSIONS}{{/if}}{{#if PLATFORMS}} {PLATFORMS}{{/if}}",
         "url": "{RELEASE_URL}",
         "color": "{{#if PRERELEASE}}{COLOR_WARNING}{{else}}{COLOR_SUCCESS}{{/if}}",
         "description": "{{#if PRERELEASE}}⚠️ **Pre-release**\n\n{{/if}}{{#if CHANGELOG}}{CHANGELOG}{{else}}_No changelog for this release._{{/if}}\n\n{CHANGELOG_LINKS}",

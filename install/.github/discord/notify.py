@@ -892,11 +892,11 @@ def vars_release_announcement(payload: dict) -> dict:
     versions.sort(key=version_key)
 
     links = changelog_links(releases)
-    return {
+    values = {
         "MOD_ID": str(metadata.get("mod_id") or ""),
         "MOD_NAME": str(metadata.get("mod_name") or ""),
-        "MOD_VERSION": str(metadata.get("mod_version") or ""),
-        "FULL_VERSION": str(metadata.get("full_version") or ""),
+        "MOD_VERSION": base["version"],
+        "FULL_VERSION": str(metadata.get("full_version") or base["tag"]),
         "JAVA_VERSION": str(metadata.get("java_version") or ""),
         "RELEASE_CHANNEL": str(metadata.get("release_channel") or ""),
         "MC_VERSION": base["mc"],
@@ -913,6 +913,11 @@ def vars_release_announcement(payload: dict) -> dict:
         "CHANGELOG_LINKS": links,
         "RELEASES": [release_item(release) for release in releases],
     }
+
+    # Without build data most of these are empty. Handing the empty strings on
+    # would overwrite the fallbacks base_values already found, so they are
+    # dropped instead - an unknown placeholder renders as "" either way.
+    return {key: value for key, value in values.items() if value != ""}
 
 
 # Every key the announcement provides, so "notify.py vars" can list them
@@ -1137,7 +1142,14 @@ def load_releases(required: bool = True) -> list:
             found = re.search(r"[+-]mc([0-9]+(?:\.[0-9]+)*)", tag)
             mc = found.group(1) if found else ""
 
+        # Same idea for the mod version: v3.1.0+mc1.20.1 -> 3.1.0. Without this
+        # an expired build artifact would leave the announcement title empty.
+        version = str(metadata.get("mod_version") or "")
+        if not version:
+            version = re.sub(r"^[vV]", "", tag.split("+", 1)[0])
+
         releases.append({
+            "version": version,
             "tag": tag,
             "name": str(entry.get("name") or ""),
             "url": str(entry.get("url") or entry.get("html_url") or ""),
@@ -1151,6 +1163,13 @@ def load_releases(required: bool = True) -> list:
         })
 
     releases.sort(key=lambda item: item["published_at"], reverse=True)
+
+    blind = [release["tag"] for release in releases if not release["metadata"]]
+    if blind:
+        warn("No build data for " + ", ".join(blind) + " - mod name, version and "
+             "loaders are guessed from the tag. The 'internal-<tag>' artifact of "
+             "the release build has expired or was never uploaded.")
+
     return releases
 
 
