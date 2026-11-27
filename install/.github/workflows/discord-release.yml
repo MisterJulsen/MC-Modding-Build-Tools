@@ -126,7 +126,7 @@ jobs:
           done < selected-tags.txt
 
           jq -s 'sort_by(.published_at) | reverse' entries.jsonl > releases.json
-          jq -r '.[] | "  \(.tag) -> Minecraft \(.metadata.minecraft_version // "?"), loaders \(.metadata.loaders // ["?"] | join("/"))"' releases.json
+          jq -r '.[] | "  \(.tag) -> Minecraft \(.metadata.minecraft_label // .metadata.minecraft_version // "?"), loaders \(.metadata.supported_loaders // .metadata.loaders // ["?"] | join("/"))"' releases.json
 
       - name: Post the announcement
         env:

@@ -7,7 +7,7 @@ final class ModVersion implements Comparable<ModVersion>, Serializable {
     private static final long serialVersionUID = 1L
 
     private static final Pattern PATTERN =
-            ~/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)\.([1-9]\d*))?$/
+            ~/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)(?:\.([1-9]\d*))?)?$/
 
     enum Stage {
         ALPHA('alpha', 'alpha'),
@@ -37,11 +37,12 @@ final class ModVersion implements Comparable<ModVersion>, Serializable {
     final int patch
     final Stage stage
 
-    final int preNumber
+    /** Prerelease counter; {@code null} for a bare stage like {@code 1.2.3-beta} and for releases. */
+    final Integer preNumber
 
     final String buildMetadata
 
-    private ModVersion(int major, int minor, int patch, Stage stage, int preNumber, String buildMetadata) {
+    private ModVersion(int major, int minor, int patch, Stage stage, Integer preNumber, String buildMetadata) {
         this.major = major
         this.minor = minor
         this.patch = patch
@@ -72,17 +73,23 @@ final class ModVersion implements Comparable<ModVersion>, Serializable {
                 matcher.group(2) as int,
                 matcher.group(3) as int,
                 Stage.fromId(matcher.group(4)),
-                matcher.group(5) ? matcher.group(5) as int : 0,
+                matcher.group(5) ? matcher.group(5) as Integer : null,
                 null)
     }
 
     private static IllegalArgumentException invalid(String value, String reason) {
         return new IllegalArgumentException(
                 "Invalid mod version '${value}': ${reason}.\n" +
-                        "Expected MAJOR.MINOR.PATCH[-(alpha|beta|rc).N], " +
-                        "for example 3.1.0, 3.1.0-beta.2 or 4.0.0-alpha.1.\n" +
+                        "Expected MAJOR.MINOR.PATCH[-(alpha|beta|rc)[.N]], " +
+                        "for example 3.1.0, 3.1.0-beta, 3.1.0-beta.2 or 4.0.0-alpha.1.\n" +
                         "See docs/VERSIONING.md for the full specification.")
     }
+
+    private static final String VARIANT_HINT =
+            "A label for players such as 'C6' (Create 6 build) does not belong in mod_version, " +
+                    "the loaders would compare it as part of the version. " +
+                    "Set it as 'mod_variant=C6' in gradle.properties - it only ends up in file names, " +
+                    "tags, Maven coordinates and titles"
 
     private static String diagnose(String value) {
         if (value ==~ /^\d+\.\d+(\.\d+)?-[a-z][a-z-]*-\d+\.\d+.*$/ ||
@@ -96,8 +103,8 @@ final class ModVersion implements Comparable<ModVersion>, Serializable {
                     "(Fabric cannot parse a dot here and falls back to string comparison, " +
                     "which breaks every version range against this mod)"
         }
-        if (value ==~ /^\d+\.\d+\.\d+-(alpha|beta|rc)$/) {
-            return "the prerelease stage needs a counter, e.g. '-beta.1' instead of '-beta'"
+        if (value.contains('_') || value ==~ /^\d+\.\d+\.\d+-(alpha|beta|rc)(\.\d+)?[-.][A-Za-z].*$/) {
+            return VARIANT_HINT
         }
         if (value ==~ /^\d+\.\d+\.\d+-(alpha|beta|rc)\d+$/) {
             return "the prerelease counter must be separated by a dot, e.g. '-beta.1' instead of '-beta1'"
@@ -110,7 +117,8 @@ final class ModVersion implements Comparable<ModVersion>, Serializable {
         }
         if (value ==~ /^\d+\.\d+\.\d+-(?!alpha|beta|rc).+$/) {
             return "unknown prerelease stage - only 'alpha', 'beta' and 'rc' are allowed. " +
-                    "A Minecraft version, a loader name or a release channel must not appear here"
+                    "A Minecraft version, a loader name or a release channel must not appear here. " +
+                    VARIANT_HINT
         }
         if (value ==~ /^0\d+.*$/ || value ==~ /^\d+\.0\d+.*$/ || value ==~ /^\d+\.\d+\.0\d+.*$/) {
             return "numeric components must not have leading zeros"
@@ -137,7 +145,13 @@ final class ModVersion implements Comparable<ModVersion>, Serializable {
     }
 
     String getBaseVersion() {
-        return stage == Stage.RELEASE ? coreVersion : "${coreVersion}-${stage.id}.${preNumber}"
+        return stage == Stage.RELEASE ? coreVersion : "${coreVersion}-${stageLabel}"
+    }
+
+    /** {@code beta}, {@code beta.2} or {@code release}. */
+    String getStageLabel() {
+        if (stage == Stage.RELEASE) return 'release'
+        return preNumber == null ? stage.id : "${stage.id}.${preNumber}"
     }
 
     boolean isPrerelease() {
@@ -190,7 +204,9 @@ final class ModVersion implements Comparable<ModVersion>, Serializable {
         result = Integer.compare(stage.ordinal(), other.stage.ordinal())
         if (result != 0) return result
 
-        return Integer.compare(preNumber, other.preNumber)
+        // A bare stage ranks below every numbered one (1.2.3-beta < 1.2.3-beta.1),
+        // the same order SemVer (Fabric) and Maven (Forge/NeoForge) use.
+        return Integer.compare(preNumber == null ? 0 : preNumber, other.preNumber == null ? 0 : other.preNumber)
     }
 
     @Override

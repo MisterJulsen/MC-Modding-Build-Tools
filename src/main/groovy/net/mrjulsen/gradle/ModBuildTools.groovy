@@ -48,7 +48,7 @@ class ModBuildTools implements Plugin<Project> {
         if (!raw) {
             throw new GradleException(
                     "[ModBuildTools] No mod version configured.\n" +
-                            "Add 'mod_version=<MAJOR.MINOR.PATCH[-(alpha|beta|rc).N]>' to gradle.properties, " +
+                            "Add 'mod_version=<MAJOR.MINOR.PATCH[-(alpha|beta|rc)[.N]]>' to gradle.properties, " +
                             "for example 'mod_version=3.1.0-beta.2'.\n" +
                             "See docs/VERSIONING.md.")
         }
@@ -88,6 +88,103 @@ class ModBuildTools implements Plugin<Project> {
                             "Add 'minecraft_version=1.20.1' to gradle.properties.")
         }
         return value
+    }
+
+    /**
+     * Every supported Minecraft version, oldest first, the compile version included.
+     */
+    static List<String> resolveMinecraftVersions(Project project, ModBuildToolsExtension ext) {
+        def target = resolveMinecraftVersion(project, ext)
+
+        List<String> raw = ext.versioning.minecraftVersions != null
+                ? ext.versioning.minecraftVersions.collect { it?.toString() }
+                : splitList(project.rootProject.findProperty("minecraft_versions"))
+
+        def versions = (raw.collect { trimmed(it) }.findAll { it } + [target]).unique()
+
+        versions.each { version ->
+            if (!(version ==~ /^[0-9A-Za-z][0-9A-Za-z.-]*$/)) {
+                throw new GradleException(
+                        "[ModBuildTools] Invalid Minecraft version '${version}' in minecraft_versions: " +
+                                "only letters, digits, '.' and '-' are allowed.")
+            }
+        }
+
+        return versions.sort(false) { String a, String b -> compareMinecraftVersions(a, b) }
+    }
+
+    // SemVer puts 1.21-pre1 before 1.21, Maven would not. Snapshot ids like
+    // 24w14a are no SemVer and fall back to Maven ordering.
+    private static int compareMinecraftVersions(String a, String b) {
+        if (VersionOrdering.isSemVerParseable(a) && VersionOrdering.isSemVerParseable(b)) {
+            return VersionOrdering.compareSemVer(a, b)
+        }
+        return VersionOrdering.compareMaven(a, b)
+    }
+
+    /** {@code 1.20.1}, or {@code 1.20-1.20.1} for several versions. Used for {mc} in names and tags. */
+    static String minecraftLabel(Project project, ModBuildToolsExtension ext) {
+        def versions = resolveMinecraftVersions(project, ext)
+        return versions.size() == 1 ? versions.first() : "${versions.first()}-${versions.last()}".toString()
+    }
+
+    static String resolveVariant(Project project, ModBuildToolsExtension ext) {
+        def value = trimmed(ext.versioning.variant) ?: trimmed(project.rootProject.findProperty("mod_variant"))
+        if (!value) return null
+
+        if (!(value ==~ /^[0-9A-Za-z]+([._-][0-9A-Za-z]+)*$/)) {
+            throw new GradleException(
+                    "[ModBuildTools] Invalid mod_variant '${value}': use letters and digits, " +
+                            "optionally separated by '.', '-' or '_', e.g. 'C6' or 'create-6'.")
+        }
+        return value
+    }
+
+    /** {@code -C6}, or empty without a variant. */
+    static String variantSuffix(Project project, ModBuildToolsExtension ext) {
+        def variant = resolveVariant(project, ext)
+        return variant ? "-${variant}".toString() : ""
+    }
+
+    /** The loaders a module's jar is published for, e.g. forge -> [forge, neoforge]. */
+    static List<String> platformLoaders(Project project, ModBuildToolsExtension ext, String module) {
+        def configured = ext.versioning.platformLoaders?.get(module)
+
+        List<String> raw = configured != null
+                ? configured.collect { it?.toString() }
+                : splitList(project.rootProject.findProperty("${module}_loaders".toString()))
+
+        def loaders = raw.collect { trimmed(it)?.toLowerCase() }.findAll { it }.unique()
+
+        loaders.each { loader ->
+            if (!(loader ==~ /^[a-z0-9_-]+$/)) {
+                throw new GradleException(
+                        "[ModBuildTools] Invalid loader '${loader}' for module '${module}': " +
+                                "use the platform's loader id, e.g. forge, neoforge, fabric, quilt.")
+            }
+        }
+
+        return loaders ?: [module]
+    }
+
+    /** Every loader any of the built jars is published for, in module order. */
+    static List<String> supportedLoaders(Project project, ModBuildToolsExtension ext) {
+        return resolveLoaders(project, ext).collectMany { platformLoaders(project, ext, it) }.unique()
+    }
+
+    private static final Map<String, String> LOADER_NAMES = [
+            forge: "Forge", neoforge: "NeoForge", fabric: "Fabric", quilt: "Quilt"
+    ].asImmutable()
+
+    static String loaderDisplayName(String loader) {
+        if (!loader) return ""
+        return LOADER_NAMES[loader.toLowerCase()] ?: loader.capitalize()
+    }
+
+    private static List<String> splitList(Object value) {
+        def text = trimmed(value)
+        if (!text) return []
+        return text.split(/[,\s]+/).collect { it.trim() }.findAll { !it.isEmpty() }
     }
 
     static String resolveModId(Project project, ModBuildToolsExtension ext) {
@@ -157,11 +254,17 @@ class ModBuildTools implements Plugin<Project> {
         def version = resolveVersion(project, ext)
         def buildSuffix = version.hasBuildMetadata() ? "-${version.buildMetadata}" : ""
 
+        def mcVersions = resolveMinecraftVersions(project, ext)
+
         return format
                 .replace("{modid}", resolveModId(project, ext))
                 .replace("{version}", version.baseVersion)
                 .replace("{fullversion}", version.toString())
-                .replace("{mc}", resolveMinecraftVersion(project, ext))
+                .replace("{mc_target}", resolveMinecraftVersion(project, ext))
+                .replace("{mc_min}", mcVersions.first())
+                .replace("{mc_max}", mcVersions.last())
+                .replace("{mc}", minecraftLabel(project, ext))
+                .replace("{variant}", variantSuffix(project, ext))
                 .replace("{loader}", loader ?: "")
                 .replace("{build}", buildSuffix.toString())
     }
@@ -169,6 +272,13 @@ class ModBuildTools implements Plugin<Project> {
     static Map<String, String> templateVariables(Project project, ModBuildToolsExtension ext, String loader) {
         def version = resolveVersion(project, ext)
         def mcVersion = resolveMinecraftVersion(project, ext)
+        def mcVersions = resolveMinecraftVersions(project, ext)
+        def mcMin = mcVersions.first()
+        def mcMax = mcVersions.last()
+        def single = mcVersions.size() == 1
+
+        def forgeMcRange  = single ? "[${mcMin}]".toString() : "[${mcMin},${mcMax}]".toString()
+        def fabricMcRange = single ? mcMin : ">=${mcMin} <=${mcMax}".toString()
 
         def vars = new LinkedHashMap<String, String>()
 
@@ -180,24 +290,38 @@ class ModBuildTools implements Plugin<Project> {
         vars["version_minor"]      = String.valueOf(version.minor)
         vars["version_patch"]      = String.valueOf(version.patch)
         vars["version_stage"]      = version.stage.id ?: "release"
-        vars["version_prerelease"] = version.prerelease ? String.valueOf(version.preNumber) : ""
+        vars["version_prerelease"] = version.preNumber != null ? String.valueOf(version.preNumber) : ""
         vars["is_prerelease"]      = String.valueOf(version.prerelease)
         vars["build_metadata"]     = version.buildMetadata ?: ""
         vars["release_channel"]    = version.channel
 
         vars["mod_id"]             = resolveModId(project, ext)
         vars["mod_name"]           = resolveDisplayName(project, ext)
+        vars["variant"]            = resolveVariant(project, ext) ?: ""
         vars["minecraft_version"]  = mcVersion
+        vars["minecraft_versions"] = mcVersions.join(",")
+        vars["minecraft_version_min"] = mcMin
+        vars["minecraft_version_max"] = mcMax
+        vars["minecraft_label"]    = minecraftLabel(project, ext)
+        vars["minecraft_version_range_forge"]  = forgeMcRange
+        vars["minecraft_version_range_fabric"] = fabricMcRange
         vars["maven_group"]        = resolveMavenGroup(project, ext)
         vars["git_tag"]            = gitTag(project, ext)
 
         if (loader) {
             vars["loader"]      = loader
-            vars["loader_name"] = loader.capitalize()
+            vars["loader_name"] = loaderDisplayName(loader)
+            vars["loaders"]     = platformLoaders(project, ext, loader).join(",")
         }
 
         if (trimmed(ext.versioning.minecraftVersionRange)) {
-            vars["minecraft_version_range"] = ext.versioning.minecraftVersionRange.replace("{mc}", mcVersion)
+            vars["minecraft_version_range"] = ext.versioning.minecraftVersionRange
+                    .replace("{mc_min}", mcMin)
+                    .replace("{mc_max}", mcMax)
+                    .replace("{mc}", mcVersion)
+        } else {
+            vars["minecraft_version_range"] =
+                    ModBuildToolsExtension.DependencyConfig.Declaration.isFabricLike(loader) ? fabricMcRange : forgeMcRange
         }
 
         ext.dependencies.declared.each { String name, ModBuildToolsExtension.DependencyConfig.Declaration dep ->
@@ -506,15 +630,24 @@ publish.allowUnpublishedProjectDependencies = true.
         def mcVersion = resolveMinecraftVersion(project, ext)
         def modules = resolveLoaders(project, ext)
 
+        def mcVersions = resolveMinecraftVersions(project, ext)
+
         def out = new StringBuilder("\n")
         out << "Mod              ${resolveModId(project, ext)} (${resolveDisplayName(project, ext)})\n"
         out << "Minecraft        ${mcVersion} (Java ${resolveJavaVersion(project, ext)})\n"
-        out << "Loaders          ${modules.join(', ')}\n"
+        if (mcVersions.size() > 1) {
+            out << "  supported      ${mcVersions.join(', ')} (label ${minecraftLabel(project, ext)})\n"
+        }
+        out << "Loaders\n"
+        modules.each { module ->
+            out << "  ${module.padRight(14)} ${platformLoaders(project, ext, module).join(', ')}\n"
+        }
+        out << "Variant          ${resolveVariant(project, ext) ?: '-'}\n"
         out << "\n"
         out << "Version field    ${version}\n"
         out << "  base           ${version.baseVersion}\n"
         out << "  core           ${version.coreVersion}\n"
-        out << "  stage          ${version.stage.id ? "${version.stage.id}.${version.preNumber}" : 'release'}\n"
+        out << "  stage          ${version.stageLabel}\n"
         out << "  channel        ${version.channel}\n"
         out << "  build metadata ${version.buildMetadata ?: '-'}\n"
         out << "Git tag          ${gitTag(project, ext)}\n"
@@ -522,6 +655,13 @@ publish.allowUnpublishedProjectDependencies = true.
         out << "\nArtifacts\n"
         modules.each { module ->
             out << "  ${module.padRight(14)} ${artifactBaseName(project, ext, module)}.jar\n"
+            def platform
+            try {
+                platform = platformVersion(project, ext, module)
+            } catch (GradleException e) {
+                platform = "INVALID - ${e.message.replace('[ModBuildTools] ', '')}"
+            }
+            out << "  ${''.padRight(14)}   platform version ${platform}\n"
         }
 
         out << "\nMaven\n"
@@ -742,18 +882,23 @@ publish.allowUnpublishedProjectDependencies = true.
 
     static String expandTitle(String format, Project project, ModBuildToolsExtension ext, String loader) {
         def version = resolveVersion(project, ext)
-        def loaders = resolveLoaders(project, ext)
+        def loaders = supportedLoaders(project, ext)
+        def moduleLoaders = loader ? platformLoaders(project, ext, loader) : []
 
         return format
                 .replace("{MOD_ID}", resolveModId(project, ext))
                 .replace("{MOD_NAME}", resolveDisplayName(project, ext))
                 .replace("{MOD_VERSION}", version.baseVersion)
                 .replace("{FULL_VERSION}", version.toString())
-                .replace("{MC_VERSION}", resolveMinecraftVersion(project, ext))
+                .replace("{MC_VERSIONS}", resolveMinecraftVersions(project, ext).join(", "))
+                .replace("{MC_VERSION}", minecraftLabel(project, ext))
+                .replace("{VARIANT_NAME}", resolveVariant(project, ext) ?: "")
+                .replace("{VARIANT}", variantSuffix(project, ext))
                 .replace("{RELEASE_CHANNEL}", version.channel)
                 .replace("{PLATFORMS}", "[" + loaders.collect { it.toUpperCase() }.join("/") + "]")
+                .replace("{LOADER_NAMES}", moduleLoaders.collect { loaderDisplayName(it) }.join("/"))
+                .replace("{LOADER_NAME}", loaderDisplayName(loader))
                 .replace("{LOADER}", loader ?: "")
-                .replace("{LOADER_NAME}", loader ? loader.capitalize() : "")
                 .replaceAll(/\s+/, " ")
                 .trim()
     }
@@ -796,14 +941,14 @@ publish.allowUnpublishedProjectDependencies = true.
     private static final int MODRINTH_NAME_LIMIT = 64
 
     private static String platformVersion(Project project, ModBuildToolsExtension ext, String loader) {
-        def version = resolveVersion(project, ext)
-        def value = "${version}+${resolveMinecraftVersion(project, ext)}-${loader}".toString()
+        def value = expandNameFormat(ext.versioning.platformVersionFormat, project, ext, loader)
 
         if (value.length() > MODRINTH_VERSION_LIMIT) {
             throw new GradleException(
                     "[ModBuildTools] Version number '${value}' is ${value.length()} characters long, " +
                             "Modrinth allows at most ${MODRINTH_VERSION_LIMIT}. " +
-                            "Shorten mod_version in gradle.properties.")
+                            "Shorten mod_version or mod_variant, or set versioning.platformVersionFormat " +
+                            "(e.g. '{fullversion}+{mc_max}{variant}-{loader}').")
         }
         return value
     }
@@ -826,9 +971,9 @@ publish.allowUnpublishedProjectDependencies = true.
         def config = readConfig(project)
 
         def githubTitleFormat = config.github_release_title_format?.toString() ?:
-                '{MOD_NAME} {MOD_VERSION} - Minecraft {MC_VERSION}'
+                '{MOD_NAME} {MOD_VERSION} - Minecraft {MC_VERSION}{VARIANT}'
         def platformTitleFormat = config.mod_release_title_format?.toString() ?:
-                '{MOD_NAME} {MOD_VERSION} - Minecraft {MC_VERSION} ({LOADER_NAME})'
+                '{MOD_NAME} {MOD_VERSION} - Minecraft {MC_VERSION}{VARIANT} ({LOADER_NAMES})'
 
         def artifacts = [:]
         loaders.each { loader ->
@@ -844,6 +989,7 @@ publish.allowUnpublishedProjectDependencies = true.
                     main_jar        : artifact.filename,
                     sources_jar     : artifact.sourcesJar ?: "",
                     javadoc_jar     : artifact.javadocJar ?: "",
+                    loaders         : platformLoaders(project, ext, loader),
                     platform_version: platformVersion(project, ext, loader),
                     platform_title  : platformTitle(platformTitleFormat, project, ext, loader)
             ]
@@ -854,6 +1000,9 @@ publish.allowUnpublishedProjectDependencies = true.
                 mod_name          : resolveDisplayName(project, ext),
                 mod_version       : version.baseVersion,
                 minecraft_version : resolveMinecraftVersion(project, ext),
+                minecraft_versions: resolveMinecraftVersions(project, ext),
+                minecraft_label   : minecraftLabel(project, ext),
+                variant           : resolveVariant(project, ext) ?: "",
                 java_version      : resolveJavaVersion(project, ext),
                 full_version      : version.toString(),
                 is_prerelease     : version.prerelease,
@@ -863,7 +1012,10 @@ publish.allowUnpublishedProjectDependencies = true.
                 release_title     : expandTitle(githubTitleFormat, project, ext, null),
                 maven_local_path  : resolveLocalRepoDir(project, ext).absolutePath,
 
+                // Built modules - one jar and one platform upload each.
                 loaders           : loaders,
+                // Every loader those jars run on, e.g. forge, neoforge, fabric, quilt.
+                supported_loaders : supportedLoaders(project, ext),
                 dependency_entries: ext.dependencies.declared.values()
                         .collect { it.publishEntry }.findAll { it } as List<String>,
                 artifacts         : artifacts

@@ -51,9 +51,12 @@ variables below.
 | `mod_id` | `dragonlib` | mod id, also the jar name prefix |
 | `display_name` | `DragonLib` | human readable name |
 | `maven_group` | `de.mrjulsen` | Maven group |
-| `minecraft_version` | `1.20.1` | target Minecraft version |
-| `mod_version` | `3.1.0-beta.2` | strict SemVer, nothing else |
+| `minecraft_version` | `1.20.1` | Minecraft version the project compiles against |
+| `minecraft_versions` | `1.20,1.20.1` | optional: every version the jars run on (the compile version is always added); more than one makes `{mc}` a range like `1.20-1.20.1` |
+| `mod_version` | `3.1.0-beta.2` | strict SemVer, nothing else (`3.1.0`, `3.1.0-beta`, `3.1.0-beta.2`) |
+| `mod_variant` | `C6` | optional label for players, e.g. a Create 6 build; only in file names, tags, Maven ids and titles, never in the version the loaders see |
 | `enabled_platforms` | `fabric,forge` | active loaders; missing subprojects are skipped with a warning |
+| `<module>_loaders` | `forge_loaders=forge,neoforge` | optional: loaders the module's jar is published for, default the module name |
 
 ---
 
@@ -69,12 +72,16 @@ modBuildTools {
     versioning {
         enabled            = true
         minecraftVersion   = null   // else minecraft_version
+        minecraftVersions  = null   // else minecraft_versions, e.g. ['1.20', '1.20.1']
         modVersion         = null   // else mod_version
+        variant            = null   // else mod_variant, e.g. 'C6'
         javaVersion        = null   // else read from the Gradle toolchain
         platformsProperty  = "enabled_platforms"
-        minecraftVersionRange = null            // e.g. "[{mc},1.22)"
-        artifactNameFormat = '{modid}-{version}+mc{mc}-{loader}{build}'
-        tagFormat          = 'v{version}+mc{mc}'
+        platformLoaders    = [:]    // else <module>_loaders, e.g. [forge: ['forge', 'neoforge']]
+        minecraftVersionRange = null            // e.g. "[{mc},1.22)"; {mc_min} {mc_max} too. Unset: built from minecraftVersions
+        artifactNameFormat = '{modid}-{version}+mc{mc}{variant}-{loader}{build}'
+        tagFormat          = 'v{version}+mc{mc}{variant}'
+        platformVersionFormat = '{fullversion}+{mc}{variant}-{loader}'   // Modrinth/CurseForge, max 32 chars
         configureArtifactNames = true
         templateResources  = true   // ${version} etc. in mods.toml, fabric.mod.json, ...
     }
@@ -84,7 +91,7 @@ modBuildTools {
         commonModule      = "common"
         localRepoDir      = "${System.getProperty('user.home')}/.m2/mod-build-local"
         mavenGroup        = null    // else maven_group
-        artifactIdFormat  = '{modid}-{loader}-{mc}'
+        artifactIdFormat  = '{modid}-{loader}-{mc}{variant}'
         sourcesJar        = true
         javadocJar        = true
         allowUnpublishedProjectDependencies = false
@@ -153,8 +160,8 @@ modBuildTools {
   "environment": "both",
   "snapshot":  { "enabled": true, "retention_days": 30 },
   "auto_port": { "enabled": true, "draft_on_conflict": true },
-  "github_release_title_format": "{MOD_NAME} {MOD_VERSION} - Minecraft {MC_VERSION}",
-  "mod_release_title_format": "{MOD_NAME} {MOD_VERSION} - Minecraft {MC_VERSION} ({LOADER_NAME})",
+  "github_release_title_format": "{MOD_NAME} {MOD_VERSION} - Minecraft {MC_VERSION}{VARIANT}",
+  "mod_release_title_format": "{MOD_NAME} {MOD_VERSION} - Minecraft {MC_VERSION}{VARIANT} ({LOADER_NAMES})",
   "changelog_categories": [
     { "inputs": ["added", "add"], "output": "Added" },
     { "inputs": ["fixed", "fix"], "output": "Fixed" }
@@ -169,7 +176,7 @@ modBuildTools {
 | `environment` | sides the mod supports: `both`, `client`, `server`, `singleplayer`, `dedicated-server`; combine with `\|`, suffix `?` optional, `*` preferred |
 | `snapshot.retention_days` | how long the snapshot workflow artifacts are kept |
 | `auto_port.draft_on_conflict` | ports with conflicts become draft pull requests |
-| `*_title_format` | placeholders: `{MOD_ID} {MOD_NAME} {MOD_VERSION} {FULL_VERSION} {MC_VERSION} {RELEASE_CHANNEL} {PLATFORMS} {LOADER} {LOADER_NAME}` |
+| `*_title_format` | placeholders: `{MOD_ID} {MOD_NAME} {MOD_VERSION} {FULL_VERSION} {MC_VERSION} {MC_VERSIONS} {VARIANT} {VARIANT_NAME} {RELEASE_CHANNEL} {PLATFORMS} {LOADER} {LOADER_NAME} {LOADER_NAMES}` — `{MC_VERSION}` is the range label (`1.20-1.20.1`), `{VARIANT}` is `-C6` or empty, `{VARIANT_NAME}` just `C6` |
 | `changelog_categories` | commit prefixes and their headings |
 
 Discord is **not** configured here any more; it lives entirely in
@@ -713,10 +720,25 @@ Pull requests get no forum post; they appear in the dev feed.
 
 ## Versioning
 
-The version field is plain SemVer: `MAJOR.MINOR.PATCH[-(alpha|beta|rc).N]`.
-Minecraft version and loader live in the file name and the Maven `artifactId`,
-never in the version. Build metadata (`+build.57.a1b2c3d`) only exists in
-snapshots and pull request builds.
+The version field is plain SemVer: `MAJOR.MINOR.PATCH[-(alpha|beta|rc)[.N]]`.
+A bare stage sorts before the numbered ones: `1.2.3-beta < 1.2.3-beta.1 < 1.2.3`.
+Minecraft version, variant and loader live in the file name and the Maven
+`artifactId`, never in the version. Build metadata (`+build.57.a1b2c3d`) only
+exists in snapshots and pull request builds.
+
+| gradle.properties | jar | tag |
+|---|---|---|
+| `mod_version=1.2.3-beta.1` | `mymod-1.2.3-beta.1+mc1.20.1-forge.jar` | `v1.2.3-beta.1+mc1.20.1` |
+| `+ mod_variant=C6` | `mymod-1.2.3-beta.1+mc1.20.1-C6-forge.jar` | `v1.2.3-beta.1+mc1.20.1-C6` |
+| `+ minecraft_versions=1.20,1.20.1` | `mymod-1.2.3-beta.1+mc1.20-1.20.1-C6-forge.jar` | `v1.2.3-beta.1+mc1.20-1.20.1-C6` |
+
+One branch builds one variant. With several Minecraft versions, Modrinth and
+CurseForge get the full list, and the template variable `${minecraft_version_range}`
+becomes `[1.20,1.20.1]` (Forge/NeoForge) or `>=1.20 <=1.20.1` (Fabric/Quilt);
+`_forge` / `_fabric` variants, `${minecraft_versions}`, `${minecraft_version_min}`,
+`${minecraft_version_max}`, `${variant}` and `${loaders}` exist as well.
+`forge_loaders=forge,neoforge` uploads the Forge jar for both loaders — the jar
+itself is not changed, it has to actually run on each of them.
 
 Full specification: [docs/VERSIONING.md](docs/VERSIONING.md).
 

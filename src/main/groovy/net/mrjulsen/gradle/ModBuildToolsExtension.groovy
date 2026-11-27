@@ -49,7 +49,7 @@ class ModBuildToolsExtension {
 
         String mavenGroup = null
 
-        String artifactIdFormat = '{modid}-{loader}-{mc}'
+        String artifactIdFormat = '{modid}-{loader}-{mc}{variant}'
 
         boolean allowUnpublishedProjectDependencies = false
 
@@ -121,11 +121,33 @@ class ModBuildToolsExtension {
     static class VersioningConfig {
         boolean enabled = true
 
+        /** The version the project compiles against. */
         String minecraftVersion = null
+
+        /**
+         * Every Minecraft version the jars run on, else 'minecraft_versions' from
+         * gradle.properties. The compile version is always added. More than one
+         * turns {mc} in file names and tags into a range like 1.20-1.20.1.
+         */
+        List<String> minecraftVersions = null
 
         String modVersion = null
 
+        /**
+         * Label for players such as 'C6', else 'mod_variant' from gradle.properties.
+         * Never part of the version the loaders see - only of file names, tags,
+         * Maven coordinates and titles, through {variant} / {VARIANT}.
+         */
+        String variant = null
+
         String platformsProperty = "enabled_platforms"
+
+        /**
+         * Loaders a module's jar is published for, keyed by module name, e.g.
+         * [forge: ['forge', 'neoforge'], fabric: ['fabric', 'quilt']].
+         * Else '<module>_loaders' from gradle.properties, else just the module name.
+         */
+        Map<String, List<String>> platformLoaders = [:]
 
         Integer javaVersion = null
 
@@ -135,9 +157,12 @@ class ModBuildToolsExtension {
         String testEnv = "TEST_BUILD"
         String commitEnv = "GITHUB_SHA"
 
-        String artifactNameFormat = '{modid}-{version}+mc{mc}-{loader}{build}'
+        String artifactNameFormat = '{modid}-{version}+mc{mc}{variant}-{loader}{build}'
 
-        String tagFormat = 'v{version}+mc{mc}'
+        String tagFormat = 'v{version}+mc{mc}{variant}'
+
+        /** Version number on Modrinth and CurseForge, at most 32 characters. */
+        String platformVersionFormat = '{fullversion}+{mc}{variant}-{loader}'
 
         boolean configureArtifactNames = true
 

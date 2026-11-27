@@ -648,14 +648,23 @@ def label_item(label) -> dict:
     }
 
 
+LOADER_NAMES = {"forge": "Forge", "neoforge": "NeoForge", "fabric": "Fabric", "quilt": "Quilt"}
+
+
+def loader_name(loader) -> str:
+    loader = str(loader)
+    return LOADER_NAMES.get(loader.lower(), loader.capitalize())
+
+
 def release_item(release) -> dict:
     release = release or {}
     return {
         "TAG": str(release.get("tag") or ""),
         "LABEL": str(release.get("label") or ""),
         "MC": str(release.get("mc") or ""),
+        "VARIANT": str(release.get("variant") or ""),
         "URL": str(release.get("url") or ""),
-        "LOADERS": ", ".join(str(item).capitalize() for item in (release.get("loaders") or [])),
+        "LOADERS": ", ".join(loader_name(item) for item in (release.get("loaders") or [])),
         "PUBLISHED": str(release.get("published_at") or "")[:10],
     }
 
@@ -902,7 +911,8 @@ def vars_release_announcement(payload: dict) -> dict:
         "MC_VERSION": base["mc"],
         "MC_VERSIONS": ", ".join(versions),
         "PLATFORMS": ("[" + "/".join(loader.upper() for loader in loaders) + "]") if loaders else "",
-        "LOADERS": ", ".join(loader.capitalize() for loader in loaders),
+        "LOADERS": ", ".join(loader_name(loader) for loader in loaders),
+        "VARIANT": base["variant"],
         "TAG": base["tag"],
         "TAGS": ", ".join(release["tag"] for release in releases),
         "RELEASE_NAME": base["name"],
@@ -925,7 +935,7 @@ def vars_release_announcement(payload: dict) -> dict:
 ANNOUNCEMENT_FIELDS = {key: [] if key == "RELEASES" else ""
                        for key in ("MOD_ID", "MOD_NAME", "MOD_VERSION", "FULL_VERSION",
                                    "JAVA_VERSION", "RELEASE_CHANNEL", "MC_VERSION",
-                                   "MC_VERSIONS", "PLATFORMS", "LOADERS", "TAG", "TAGS",
+                                   "MC_VERSIONS", "PLATFORMS", "LOADERS", "VARIANT", "TAG", "TAGS",
                                    "RELEASE_NAME", "RELEASE_URL", "PRERELEASE", "PUBLISHED",
                                    "CHANGELOG", "CHANGELOG_LINKS", "RELEASES")}
 
@@ -965,6 +975,7 @@ DESCRIPTIONS = {
     "MOD_NAME": "the MOD_NAME repository variable, or the repository name",
     "PING": "the rule's own 'ping' value, empty when the run disabled pinging",
     "PLATFORMS": "the mod loaders as [FORGE/FABRIC]",
+    "VARIANT": "the mod_variant of the release, e.g. C6 - empty without one",
     "PR_VERB": "opened, reopened, merged, closed, ready for review …",
     "RELEASES": "one entry per announced release",
     "REVIEW_VERB": "approved, requested changes on, reviewed …",
@@ -1136,10 +1147,11 @@ def load_releases(required: bool = True) -> list:
         tag = str(entry.get("tag") or entry.get("tagName") or "")
 
         # Without build data the Minecraft version still sits in the tag the
-        # build tools generated, for example v3.1.0+mc1.20.1.
-        mc = str(metadata.get("minecraft_version") or "")
+        # build tools generated, for example v3.1.0+mc1.20.1 or, for several
+        # versions, v3.1.0+mc1.20-1.20.1-C6.
+        mc = str(metadata.get("minecraft_label") or metadata.get("minecraft_version") or "")
         if not mc:
-            found = re.search(r"[+-]mc([0-9]+(?:\.[0-9]+)*)", tag)
+            found = re.search(r"[+-]mc([0-9]+(?:\.[0-9]+)*(?:-[0-9]+(?:\.[0-9]+)*)?)", tag)
             mc = found.group(1) if found else ""
 
         # Same idea for the mod version: v3.1.0+mc1.20.1 -> 3.1.0. Without this
@@ -1157,8 +1169,10 @@ def load_releases(required: bool = True) -> list:
             "published_at": str(entry.get("published_at") or entry.get("publishedAt") or ""),
             "prerelease": bool(entry.get("prerelease") or entry.get("isPrerelease")),
             "metadata": metadata,
-            "loaders": [str(item) for item in (metadata.get("loaders") or [])],
+            "loaders": [str(item) for item in
+                        (metadata.get("supported_loaders") or metadata.get("loaders") or [])],
             "mc": mc,
+            "variant": str(metadata.get("variant") or ""),
             "label": mc or tag,
         })
 
